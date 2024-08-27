@@ -11,6 +11,7 @@
 #include "cpc_player.h"
 #include "mod_player.h"
 #include "ogg_player.h"
+#include "prf_player.h"
 #include "sfx_player.h"
 
 struct MixerChunk {
@@ -49,6 +50,7 @@ struct Mixer {
 		MT_NONE,
 		MT_MOD,
 		MT_OGG,
+		MT_PRF,
 		MT_SFX,
 		MT_CPC,
 	};
@@ -70,10 +72,11 @@ struct Mixer {
 	CpcPlayer _cpc;
 	ModPlayer _mod;
 	OggPlayer _ogg;
+	PrfPlayer _prf;
 	SfxPlayer _sfx;
 	int _musicTrack;
 
-	Mixer(FileSystem *fs, SystemStub *stub);
+	Mixer(FileSystem *fs, SystemStub *stub, int midiDriver);
 	void init();
 	void free();
 	void setPremixHook(PremixHook premixHook, void *userData);
@@ -81,7 +84,7 @@ struct Mixer {
 	bool isPlaying(const uint8_t *data) const;
 	uint32_t getSampleRate() const;
 	void stopAll();
-	void playMusic(int num);
+	void playMusic(int num, int tempo = 0);
 	void stopMusic();
 	void mix(int16_t *buf, int len);
 

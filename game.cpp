@@ -9,25 +9,25 @@
 #include "file.h"
 #include "fs.h"
 #include "game.h"
+#include "screenshot.h"
 #include "seq_player.h"
 #include "systemstub.h"
-#include "unpack.h"
 #include "util.h"
-#include "mixer.h"
 
-Game::Game(SystemStub *stub, FileSystem *fs, FileSystem *tune_fs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave)
+Game::Game(SystemStub *stub, FileSystem *fs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, int midiDriver, uint32_t cheats)
 	: _cut(&_res, stub, &_vid), _menu(&_res, stub, &_vid),
-	_mix(tune_fs, stub), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
+	_mix(fs, stub, midiDriver), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
 	_stub(stub), _fs(fs), _savePath(savePath) {
 	_stateSlot = 1;
 	_inp_demPos = 0;
 	_skillLevel = _menu._skill = kSkillNormal;
 	_currentLevel = _menu._level = level;
-	_demoBin = _shownDemo = -1;
+	_demoBin = -1;
 	_widescreenMode = widescreenMode;
 	_autoSave = autoSave;
 	_rewindPtr = -1;
 	_rewindLen = 0;
+	_cheats = cheats;
 }
 
 void Game::run() {
@@ -56,9 +56,12 @@ void Game::run() {
 		_res.MAC_loadClutData();
 		_res.MAC_loadFontData();
 		break;
+	case kResourceTypePC98:
+		// use _font8Jp
+		break;
 	}
 
-	if (!g_options.bypass_protection && !g_options.use_words_protection && !_res.isMac()) {
+	if (!g_options.bypass_protection && !g_options.use_words_protection && (_res.isAmiga() || _res.isDOS())) {
 		while (!handleProtectionScreenShape()) {
 			if (_stub->_pi.quit) {
 				return;
@@ -78,6 +81,7 @@ void Game::run() {
 	playCutscene(0x40);
 	playCutscene(0x0D);
 
+	// global resources
 	switch (_res._type) {
 	case kResourceTypeAmiga:
 		_res.load("ICONE", Resource::OT_ICN, "SPR");
@@ -85,15 +89,31 @@ void Game::run() {
 		_res.load("PERSO", Resource::OT_SPM);
 		break;
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		_res.load("GLOBAL", Resource::OT_ICN);
 		_res.load("GLOBAL", Resource::OT_SPC);
 		_res.load("PERSO", Resource::OT_SPR);
 		_res.load_SPR_OFF("PERSO", _res._spr1);
-		_res.load_FIB("GLOBAL");
 		break;
 	case kResourceTypeMac:
 		_res.MAC_loadIconData();
 		_res.MAC_loadPersoData();
+		_res.MAC_loadSounds();
+		break;
+	}
+
+	// sound resources
+	switch (_res._type) {
+	case kResourceTypeAmiga:
+		// sounds are loaded per level
+		break;
+	case kResourceTypeDOS:
+		_res.load_FIB("GLOBAL");
+		break;
+	case kResourceTypePC98:
+		_res.PC98_loadSounds();
+		break;
+	case kResourceTypeMac:
 		_res.MAC_loadSounds();
 		break;
 	}
@@ -112,13 +132,14 @@ void Game::run() {
 			_mix.playMusic(1);
 			switch (_res._type) {
 			case kResourceTypeDOS:
+			case kResourceTypePC98:
 				_menu.handleTitleScreen();
 				if (_menu._selectedOption == Menu::MENU_OPTION_ITEM_QUIT || _stub->_pi.quit) {
 					_stub->_pi.quit = true;
 					break;
 				}
 				if (_menu._selectedOption == Menu::MENU_OPTION_ITEM_DEMO) {
-					_demoBin = (++_shownDemo) % ARRAYSIZE(_demoInputs);
+					_demoBin = (_demoBin + 1) % ARRAYSIZE(_demoInputs);
 					const char *fn = _demoInputs[_demoBin].name;
 					debug(DBG_DEMO, "Loading inputs from '%s'", fn);
 					_res.load_DEM(fn);
@@ -128,13 +149,11 @@ void Game::run() {
 					_skillLevel = kSkillNormal;
 					_currentLevel = _demoInputs[_demoBin].level;
 					_randSeed = 0;
-					_mix.stopMusic();
-					break;
+				} else {
+					_demoBin = -1;
+					_skillLevel = _menu._skill;
+					_currentLevel = _menu._level;
 				}
-				_demoBin = -1;
-				_skillLevel = _menu._skill;
-				_currentLevel = _menu._level;
-				_mix.stopMusic();
 				break;
 			case kResourceTypeAmiga:
 				displayTitleScreenAmiga();
@@ -144,6 +163,7 @@ void Game::run() {
 				displayTitleScreenMac(Menu::kMacTitleScreen_Flashback);
 				break;
 			}
+			_mix.stopMusic();
 		}
 		if (_stub->_pi.quit) {
 			break;
@@ -173,7 +193,6 @@ void Game::run() {
 				if (_demoBin != -1 && _inp_demPos >= _res._demLen) {
 					debug(DBG_DEMO, "End of demo");
 					// exit level
-					_demoBin = -1;
 					_endLoop = true;
 				}
 			}
@@ -226,7 +245,7 @@ void Game::displayTitleScreenAmiga() {
 			static const uint8_t selectedColor = 0xE4;
 			static const uint8_t defaultColor = 0xE8;
 			for (int i = 0; i < 7; ++i) {
-				const char *str = _menu.getLevelName(i);
+				const char *str = Menu::_levelNames[i];
 				const uint8_t color = (_currentLevel == i) ? selectedColor : defaultColor;
 				const int x = 24;
 				const int y = 24 + i * 16;
@@ -322,7 +341,7 @@ void Game::displayTitleScreenMac(int num) {
 			static const uint8_t selectedColor = 0xE4;
 			static const uint8_t defaultColor = 0xE8;
 			for (int i = 0; i < 7; ++i) {
-				const char *str = _menu.getLevelName(i);
+				const char *str = Menu::_levelNames[i];
 				_vid.drawString(str, 24, 24 + i * 16, (_currentLevel == i) ? selectedColor : defaultColor);
 			}
 			if (_stub->_pi.dirMask & PlayerInput::DIR_UP) {
@@ -362,16 +381,17 @@ void Game::resetGameState() {
 	_animBuffers._curPos[3] = 0xFF;
 	_currentRoom = _res._pgeInit[0].init_room;
 	_cut._deathCutsceneId = 0xFFFF;
-	_pge_opTempVar2 = 0xFFFF;
 	_deathCutsceneCounter = 0;
-	_deathBackgroundMusicTrack = -1;
 	_saveStateCompleted = false;
 	_loadMap = true;
-	pge_resetGroups();
+	pge_resetMessages();
 	_blinkingConradCounter = 0;
 	_pge_processOBJ = false;
-	_pge_opTempVar1 = 0;
+	_pge_opGunVar = 0;
 	_textToDisplay = 0xFFFF;
+	_pge_zoomPiegeNum = 0;
+	_pge_zoomCounter = 0;
+	_pge_zoomX = _pge_zoomY = 0;
 }
 
 void Game::mainLoop() {
@@ -382,11 +402,6 @@ void Game::mainLoop() {
 		return;
 	}
 	if (_deathCutsceneCounter) {
-		if (_mix._backgroundMusicType != Mixer::MT_NONE && _mix._musicTrack != -1) {
-			_deathBackgroundMusicTrack = _mix._musicTrack;
-			_mix._musicTrack = -1;
-			_mix.stopMusic();
-		}
 		--_deathCutsceneCounter;
 		if (_deathCutsceneCounter == 0) {
 			playCutscene(_cut._deathCutsceneId);
@@ -425,7 +440,11 @@ void Game::mainLoop() {
 			_currentLevel = oldLevel;
 		}
 		changeLevel();
-		_pge_opTempVar1 = 0;
+		_pge_opGunVar = 0;
+		return;
+	}
+	if (_currentLevel == 3 && _cut._id == 50) {
+		// do not draw next room when boarding taxi
 		return;
 	}
 	if (_loadMap) {
@@ -438,6 +457,9 @@ void Game::mainLoop() {
 			_loadMap = false;
 			_vid.fullRefresh();
 		}
+	}
+	if (_res.isDOS() && (_stub->_pi.dbgMask & PlayerInput::DF_AUTOZOOM) != 0) {
+		pge_updateZoom();
 	}
 	prepareAnims();
 	drawAnims();
@@ -489,9 +511,7 @@ void Game::playCutscene(int id) {
 		_cut._id = id;
 	}
 	if (_cut._id != 0xFFFF) {
-		if (_stub->hasWidescreen()) {
-			_stub->enableWidescreen(false);
-		}
+		ToggleWidescreenStack tws(_stub, false);
 		_mix.stopMusic();
 		if (_res._hasSeqData) {
 			int num = 0;
@@ -527,35 +547,44 @@ void Game::playCutscene(int id) {
 				return;
 			}
 			if (SeqPlayer::_namesTable[_cut._id]) {
-				char name[16];
-				snprintf(name, sizeof(name), "%s.SEQ", SeqPlayer::_namesTable[_cut._id]);
+			        char name[16];
+			        snprintf(name, sizeof(name), "%s.SEQ", SeqPlayer::_namesTable[_cut._id]);
 				char *p = strchr(name, '0');
 				if (p) {
 					*p += num;
 				}
-				if (playCutsceneSeq(name)) {
+			        if (playCutsceneSeq(name)) {
 					if (_cut._id == 0x3D) {
 						playCutsceneSeq("CREDITS.SEQ");
 						_cut._interrupted = false;
 					} else {
 						_cut._id = 0xFFFF;
 					}
+					_mix.stopMusic();
 					return;
 				}
 			}
 		}
-		if (_cut._id != 0x4A) {
-			_mix.playMusic(Cutscene::_musicTable[_cut._id]);
+		if (_res.isAmiga()) {
+			const int num = Cutscene::_musicTableAmiga[_cut._id * 2];
+			if (num != 0xFF) {
+				const int bpm = Cutscene::_musicTableAmiga[_cut._id * 2 + 1];
+				_mix.playMusic(num, bpm);
+			}
+		} else {
+			const int num = Cutscene::_musicTableDOS[_cut._id];
+			if (num != 0xFF) {
+				_mix.playMusic(num);
+			}
 		}
 		_cut.play();
 		if (id == 0xD && !_cut._interrupted) {
-			const bool extendedIntroduction = (_res._type == kResourceTypeDOS || _res._type == kResourceTypeMac);
-			if (extendedIntroduction) {
-				_cut._id = 0x4A;
+			if (!_res.isAmiga()) {
+				_cut._id = 0x4A; // second part of the introduction cutscene
 				_cut.play();
 			}
 		}
-		if (_res._type == kResourceTypeMac && !(id == 0x48 || id == 0x49)) { // continue or score screens
+		if (_res.isMac() && !(id == 0x48 || id == 0x49)) { // continue or score screens
 			// restore palette entries modified by the cutscene player (0xC and 0xD)
 			Color palette[32];
 			_res.MAC_copyClut16(palette, 0, 0x37);
@@ -564,16 +593,11 @@ void Game::playCutscene(int id) {
 				_stub->setPaletteEntry(0xC0 + i, &palette[i]);
 			}
 		}
-		if (_cut._id == 0x3D && _res._type != kResourceTypeMac) {
-			if (_mix._backgroundMusicType == Mixer::MT_OGG) {
-				_mix.playMusic(1009);
-			}
+		if (_cut._id == 0x3D) {
+			_mix.playMusic(Mixer::MUSIC_TRACK + 9);
 			_cut.playCredits();
 		}
 		_mix.stopMusic();
-		if (_stub->hasWidescreen()) {
-			_stub->enableWidescreen(true);
-		}
 	}
 }
 
@@ -597,10 +621,7 @@ void Game::inp_handleSpecialKeys() {
 		_stub->_pi.load = false;
 	}
 	if (_stub->_pi.save) {
-		_validSaveState = saveGameState(_stateSlot);
-		if (_validSaveState and g_options.play_gamesaved_sound) {
-			_mix.play(Resource::_gameSavedSoundData, Resource::_gameSavedSoundLen, 8000, Mixer::MAX_VOLUME);
-		}
+		saveGameState(_stateSlot);
 		_stub->_pi.save = false;
 	}
 	if (_stub->_pi.stateSlot != 0) {
@@ -652,10 +673,10 @@ void Game::showFinalScore() {
 }
 
 bool Game::handleConfigPanel() {
-	const int x = 7;
-	const int y = 10;
-	const int w = 17;
-	const int h = 12;
+	static const int x = 7;
+	static const int y = 10;
+	static const int w = 17;
+	static const int h = 12;
 
 	_vid._charShadowColor = 0xE2;
 	_vid._charFrontColor = 0xEE;
@@ -673,28 +694,29 @@ bool Game::handleConfigPanel() {
 		}
 		break;
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		// top-left rounded corner
-		_vid.PC_drawChar(0x81, y, x, kUseDefaultFont);
+		_vid.DOS_drawChar(0x81, y, x, kUseDefaultFont);
 		// top-right rounded corner
-		_vid.PC_drawChar(0x82, y, x + w, kUseDefaultFont);
+		_vid.DOS_drawChar(0x82, y, x + w, kUseDefaultFont);
 		// bottom-left rounded corner
-		_vid.PC_drawChar(0x83, y + h, x, kUseDefaultFont);
+		_vid.DOS_drawChar(0x83, y + h, x, kUseDefaultFont);
 		// bottom-right rounded corner
-		_vid.PC_drawChar(0x84, y + h, x + w, kUseDefaultFont);
+		_vid.DOS_drawChar(0x84, y + h, x + w, kUseDefaultFont);
 		// horizontal lines
 		for (int i = 1; i < w; ++i) {
-			_vid.PC_drawChar(0x85, y, x + i, kUseDefaultFont);
-			_vid.PC_drawChar(0x88, y + h, x + i, kUseDefaultFont);
+			_vid.DOS_drawChar(0x85, y, x + i, kUseDefaultFont);
+			_vid.DOS_drawChar(0x88, y + h, x + i, kUseDefaultFont);
 		}
 		for (int j = 1; j < h; ++j) {
 			_vid._charTransparentColor = 0xFF;
 			// left vertical line
-			_vid.PC_drawChar(0x86, y + j, x, kUseDefaultFont);
+			_vid.DOS_drawChar(0x86, y + j, x, kUseDefaultFont);
 			// right vertical line
-			_vid.PC_drawChar(0x87, y + j, x + w, kUseDefaultFont);
+			_vid.DOS_drawChar(0x87, y + j, x + w, kUseDefaultFont);
 			_vid._charTransparentColor = 0xE2;
 			for (int i = 1; i < w; ++i) {
-				_vid.PC_drawChar(0x20, y + j, x + i, kUseDefaultFont);
+				_vid.DOS_drawChar(0x20, y + j, x + i, kUseDefaultFont);
 			}
 		}
 		break;
@@ -1040,7 +1062,7 @@ void Game::drawString(const uint8_t *p, int x, int y, uint8_t color, bool hcente
 }
 
 void Game::prepareAnims() {
-	if (!(_currentRoom & 0x80) && _currentRoom < 0x40) {
+	if (_currentRoom < 0x40) {
 		int8_t pge_room;
 		LivePGE *pge = _pge_liveTable1[_currentRoom];
 		while (pge) {
@@ -1101,6 +1123,7 @@ void Game::prepareAnimsHelper(LivePGE *pge, int16_t dx, int16_t dy) {
 		switch (_res._type) {
 		case kResourceTypeAmiga:
 		case kResourceTypeDOS:
+		case kResourceTypePC98:
 			assert(pge->anim_number < 1287);
 			dataPtr = _res._sprData[pge->anim_number];
 			if (dataPtr == 0) {
@@ -1119,6 +1142,7 @@ void Game::prepareAnimsHelper(LivePGE *pge, int16_t dx, int16_t dy) {
 			h = dataPtr[2] & 0x7F;
 			break;
 		case kResourceTypeDOS:
+		case kResourceTypePC98:
 			w = dataPtr[2];
 			h = dataPtr[3];
 			dataPtr += 4;
@@ -1154,6 +1178,7 @@ void Game::prepareAnimsHelper(LivePGE *pge, int16_t dx, int16_t dy) {
 		switch (_res._type) {
 		case kResourceTypeAmiga:
 		case kResourceTypeDOS:
+		case kResourceTypePC98:
 			assert(pge->anim_number < _res._numSpc);
 			dataPtr = _res._spc + READ_BE_UINT16(_res._spc + pge->anim_number * 2);
 			break;
@@ -1203,8 +1228,9 @@ void Game::drawAnimBuffer(uint8_t stateNum, AnimBufferState *state) {
 					drawCharacter(_res._scratchBuffer, state->x, state->y, state->h, state->w, pge->flags);
 					break;
 				case kResourceTypeDOS:
+				case kResourceTypePC98:
 					if (!(state->dataPtr[-2] & 0x80)) {
-						_vid.PC_decodeSpm(state->dataPtr, _res._scratchBuffer);
+						_vid.DOS_decodeSpm(state->dataPtr, _res._scratchBuffer);
 						drawCharacter(_res._scratchBuffer, state->x, state->y, state->h, state->w, pge->flags);
 					} else {
 						drawCharacter(state->dataPtr, state->x, state->y, state->h, state->w, pge->flags);
@@ -1227,6 +1253,7 @@ void Game::drawPiege(AnimBufferState *state) {
 	switch (_res._type) {
 	case kResourceTypeAmiga:
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		drawObject(state->dataPtr, state->x, state->y, pge->flags);
 		break;
 	case kResourceTypeMac:
@@ -1268,6 +1295,7 @@ void Game::drawObject(const uint8_t *dataPtr, int16_t x, int16_t y, uint8_t flag
 		dataPtr += 9;
 		break;
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		count = dataPtr[5];
 		dataPtr += 6;
 		break;
@@ -1306,7 +1334,8 @@ void Game::drawObjectFrame(const uint8_t *bankDataPtr, const uint8_t *dataPtr, i
 		_vid.AMIGA_decodeSpc(src, sprite_w, sprite_h, _res._scratchBuffer);
 		break;
 	case kResourceTypeDOS:
-		_vid.PC_decodeSpc(src, sprite_w, sprite_h, _res._scratchBuffer);
+	case kResourceTypePC98:
+		_vid.DOS_decodeSpc(src, sprite_w, sprite_h, _res._scratchBuffer);
 		break;
 	case kResourceTypeMac:
 		assert(0); // different graphics format
@@ -1384,11 +1413,11 @@ void Game::drawObjectFrame(const uint8_t *bankDataPtr, const uint8_t *dataPtr, i
 
 void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, uint8_t a, uint8_t b, uint8_t flags) {
 	debug(DBG_GAME, "Game::drawCharacter(%p, %d, %d, 0x%X, 0x%X, 0x%X)", dataPtr, pos_x, pos_y, a, b, flags);
-	bool var16 = false; // sprite_mirror_y
+	bool sprite_mirror_y = false;
 	if (b & 0x40) {
-		b &= 0xBF;
+		b &= ~0x40;
 		SWAP(a, b);
-		var16 = true;
+		sprite_mirror_y = true;
 	}
 	uint16_t sprite_h = a;
 	uint16_t sprite_w = b;
@@ -1404,7 +1433,7 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 			sprite_clipped_w = 256 - pos_x;
 			if (flags & 2) {
 				var14 = true;
-				if (var16) {
+				if (sprite_mirror_y) {
 					src += (sprite_w - 1) * sprite_h;
 				} else {
 					src += sprite_w - 1;
@@ -1414,7 +1443,7 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 	} else {
 		sprite_clipped_w = pos_x + sprite_w;
 		if (!(flags & 2)) {
-			if (var16) {
+			if (sprite_mirror_y) {
 				src -= sprite_h * pos_x;
 				pos_x = 0;
 			} else {
@@ -1423,7 +1452,7 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 			}
 		} else {
 			var14 = true;
-			if (var16) {
+			if (sprite_mirror_y) {
 				src += sprite_h * (pos_x + sprite_w - 1);
 				pos_x = 0;
 			} else {
@@ -1446,7 +1475,7 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 		}
 	} else {
 		sprite_clipped_h = sprite_h + pos_y;
-		if (var16) {
+		if (sprite_mirror_y) {
 			src -= pos_y;
 		} else {
 			src -= sprite_w * pos_y;
@@ -1458,7 +1487,7 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 	}
 
 	if (!var14 && (flags & 2)) {
-		if (var16) {
+		if (sprite_mirror_y) {
 			src += sprite_h * (sprite_w - 1);
 		} else {
 			src += sprite_w - 1;
@@ -1471,13 +1500,13 @@ void Game::drawCharacter(const uint8_t *dataPtr, int16_t pos_x, int16_t pos_y, u
 	debug(DBG_GAME, "dst_offset=0x%X src_offset=%ld", dst_offset, src - dataPtr);
 
 	if (!(flags & 2)) {
-		if (var16) {
+		if (sprite_mirror_y) {
 			_vid.drawSpriteSub5(src, _vid._frontLayer + dst_offset, sprite_h, sprite_clipped_h, sprite_clipped_w, sprite_col_mask);
 		} else {
 			_vid.drawSpriteSub3(src, _vid._frontLayer + dst_offset, sprite_w, sprite_clipped_h, sprite_clipped_w, sprite_col_mask);
 		}
 	} else {
-		if (var16) {
+		if (sprite_mirror_y) {
 			_vid.drawSpriteSub6(src, _vid._frontLayer + dst_offset, sprite_h, sprite_clipped_h, sprite_clipped_w, sprite_col_mask);
 		} else {
 			_vid.drawSpriteSub4(src, _vid._frontLayer + dst_offset, sprite_w, sprite_clipped_h, sprite_clipped_w, sprite_col_mask);
@@ -1519,7 +1548,8 @@ int Game::loadMonsterSprites(LivePGE *pge) {
 				}
 			}
 			break;
-		case kResourceTypeDOS: {
+		case kResourceTypeDOS:
+		case kResourceTypePC98: {
 				const char *name = _monsterNames[0][_curMonsterNum];
 				_res.load(name, Resource::OT_SPRM);
 				_res.load_SPR_OFF(name, _res._sprm);
@@ -1548,9 +1578,13 @@ bool Game::hasLevelMap(int level, int room) const {
 	if (_res._map) {
 		return READ_LE_UINT32(_res._map + room * 6) != 0;
 	} else if (_res._lev) {
-		return READ_BE_UINT32(_res._lev + room * 4) != 0;
+		return READ_BE_UINT32(_res._lev + room * 4) > 0x100;
 	}
 	return false;
+}
+
+static bool isMetro(int level, int room) {
+	return level == 1 && (room == 0 || room == 13 || room == 38 || room == 51);
 }
 
 void Game::loadLevelMap() {
@@ -1585,60 +1619,47 @@ void Game::loadLevelMap() {
 		_vid.AMIGA_decodeLev(_currentLevel, _currentRoom);
 		break;
 	case kResourceTypeDOS:
-		if (_stub->hasWidescreen() && (_widescreenMode == kWidescreenAdjacentRooms || _widescreenMode == kWidescreenAdjacentRoomsBlur)) {
+		if (_stub->hasWidescreen() && _widescreenMode == kWidescreenAdjacentRooms) {
 			const int leftRoom = _res._ctData[CT_LEFT_ROOM + _currentRoom];
-			if (
-				leftRoom >= 0 && hasLevelMap(_currentLevel, leftRoom) &&
-				// don't draw adjacent rooms in subway
-				!(_currentLevel == 1 && (leftRoom == 0 || leftRoom == 13 || leftRoom == 38 || leftRoom == 51))
-			) {
-				_vid.PC_decodeMap(_currentLevel, leftRoom);
-				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
+			if (leftRoom >= 0 && hasLevelMap(_currentLevel, leftRoom) && !isMetro(_currentLevel, leftRoom)) {
+				_vid.DOS_decodeMap(_currentLevel, leftRoom);
+				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer);
 			} else {
 				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, 0);
 			}
 			const int rightRoom = _res._ctData[CT_RIGHT_ROOM + _currentRoom];
-			if (
-				rightRoom >= 0 && hasLevelMap(_currentLevel, rightRoom) &&
-				// don't draw adjacent rooms in subway
-				!(_currentLevel == 1 && (rightRoom == 0 || rightRoom == 13 || rightRoom == 38 || rightRoom == 51))
-			) {
-				_vid.PC_decodeMap(_currentLevel, rightRoom);
-				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
+			if (rightRoom >= 0 && hasLevelMap(_currentLevel, rightRoom) && !isMetro(_currentLevel, rightRoom)) {
+				_vid.DOS_decodeMap(_currentLevel, rightRoom);
+				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer);
 			} else {
 				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, 0);
 			}
 			widescreenUpdated = true;
 		}
-		_vid.PC_decodeMap(_currentLevel, _currentRoom);
+		_vid.DOS_decodeMap(_currentLevel, _currentRoom);
 		break;
 	case kResourceTypeMac:
-		if (_stub->hasWidescreen() && (_widescreenMode == kWidescreenAdjacentRooms || _widescreenMode == kWidescreenAdjacentRoomsBlur)) {
+		if (_stub->hasWidescreen() && _widescreenMode == kWidescreenAdjacentRooms) {
 			const int leftRoom = _res._ctData[CT_LEFT_ROOM + _currentRoom];
-			if (
-				leftRoom > 0 && hasLevelMap(_currentLevel, leftRoom) &&
-				// don't draw adjacent rooms in subway
-				!(_currentLevel == 1 && (leftRoom == 0 || leftRoom == 13 || leftRoom == 38 || leftRoom == 51))
-			) {
+			if (leftRoom >= 0 && hasLevelMap(_currentLevel, leftRoom)) {
 				_vid.MAC_decodeMap(_currentLevel, leftRoom);
-				_stub->copyWidescreenLeft(_vid._w, _vid._h, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
+				_stub->copyWidescreenLeft(_vid._w, _vid._h, _vid._backLayer);
 			} else {
 				_stub->copyWidescreenLeft(_vid._w, _vid._h, 0);
 			}
 			const int rightRoom = _res._ctData[CT_RIGHT_ROOM + _currentRoom];
-			if (
-				rightRoom > 0 && hasLevelMap(_currentLevel, rightRoom) &&
-				// don't draw adjacent rooms in subway
-				!(_currentLevel == 1 && (leftRoom == 0 || leftRoom == 13 || leftRoom == 38 || leftRoom == 51))
-			) {
+			if (rightRoom >= 0 && hasLevelMap(_currentLevel, rightRoom)) {
 				_vid.MAC_decodeMap(_currentLevel, rightRoom);
-				_stub->copyWidescreenRight(_vid._w, _vid._h, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
+				_stub->copyWidescreenRight(_vid._w, _vid._h, _vid._backLayer);
 			} else {
 				_stub->copyWidescreenRight(_vid._w, _vid._h, 0);
 			}
 			widescreenUpdated = true;
 		}
 		_vid.MAC_decodeMap(_currentLevel, _currentRoom);
+		break;
+	case kResourceTypePC98:
+		_vid.PC98_decodeMap(_currentLevel, _currentRoom);
 		break;
 	}
 	if (!widescreenUpdated) {
@@ -1703,11 +1724,14 @@ void Game::loadLevelData() {
 		}
 		break;
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		_res.load(lvl->name, Resource::OT_MBK);
 		_res.load(lvl->name, Resource::OT_CT);
 		_res.load(lvl->name, Resource::OT_PAL);
 		_res.load(lvl->name, Resource::OT_RP);
-		if (_res._isDemo || g_options.use_tile_data) { // use .BNQ/.LEV/(.SGD) instead of .MAP (PC demo)
+		if (_res.isPC98()) {
+			_res.PC98_loadLevelMap(_currentLevel);
+		} else if (_res._isDemo || g_options.use_tile_data || _res._aba) { // use .BNQ/.LEV/(.SGD) instead of .MAP (PC demo)
 			if (_currentLevel == 0) {
 				_res.load(lvl->name, Resource::OT_SGD);
 			}
@@ -1726,11 +1750,33 @@ void Game::loadLevelData() {
 		_res.MAC_loadLevelData(_currentLevel);
 		break;
 	}
+	if (0) {
+		for (int i = 0; i < 64; ++i) {
+			if (hasLevelMap(_currentLevel, i)) {
+				_currentRoom = i;
+				loadLevelMap();
+				uint8_t palette[256 * 3];
+				_stub->getPalette(palette, 256);
+				char name[64];
+				snprintf(name, sizeof(name), "DUMP/level%d_room%02d.bmp", _currentLevel, i);
+				saveBMP(name, _vid._backLayer, palette, _vid._w, _vid._h);
+
+				memcpy(_vid._frontLayer, _vid._backLayer, _vid._layerSize);
+				for (int y = 0; y < 7; ++y) {
+					for (int x = 0; x < 16; ++x) {
+						const uint8_t num = _res._ctData[0x100 + _currentRoom * 0x70 + y * 16 + x];
+						char buf[16];
+						snprintf(buf, sizeof(buf), "%d", num);
+						_vid.drawString(buf, x * 16, y * 36 + 8, 0xE7);
+					}
+				}
+				snprintf(name, sizeof(name), "DUMP/level%d_room%02d_grid.bmp", _currentLevel, i);
+				saveBMP(name, _vid._frontLayer, palette, _vid._w, _vid._h);
+			}
+		}
+	}
 
 	_cut._id = lvl->cutscene_id;
-	if (_res._isDemo && _currentLevel == 5) { // PC demo does not include TELEPORT.*
-		_cut._id = 0xFFFF;
-	}
 
 	_curMonsterNum = 0xFFFF;
 	_curMonsterFrame = 0;
@@ -1770,10 +1816,26 @@ void Game::loadLevelData() {
 			_pge_liveTable1[pge->room_location] = pge;
 		}
 	}
-	pge_resetGroups();
+	pge_resetMessages();
 	_validSaveState = false;
 
 	_mix.playMusic(Mixer::MUSIC_TRACK + lvl->track);
+
+	if (_widescreenMode == kWidescreenCDi) {
+		char name[16];
+		snprintf(name, sizeof(name), "flashp%d.bob", _currentLevel + 1);
+		File f;
+		if (f.open(name, "rb", _fs)) {
+			const int w = f.readUint16LE();
+			const int h = f.readUint16LE();
+			if (w != kWidescreenBorderCDiW || h != kWidescreenBorderCDiH) {
+				warning("Unsupported CDi border w:%d h:%d", w, h);
+			} else {
+				f.read(_res._scratchBuffer, 256 * 3 + w * h);
+				_stub->copyWidescreenCDi(w, h, _res._scratchBuffer + 256 * 3, _res._scratchBuffer);
+			}
+		}
+	}
 }
 
 void Game::drawIcon(uint8_t iconNum, int16_t x, int16_t y, uint8_t colMask) {
@@ -1807,7 +1869,8 @@ void Game::drawIcon(uint8_t iconNum, int16_t x, int16_t y, uint8_t colMask) {
 		}
 		break;
 	case kResourceTypeDOS:
-		_vid.PC_decodeIcn(_res._icn, iconNum, buf);
+	case kResourceTypePC98:
+		_vid.DOS_decodeIcn(_res._icn, iconNum, buf);
 		break;
 	case kResourceTypeMac:
 		switch (iconNum) {
@@ -1841,10 +1904,9 @@ void Game::playSound(uint8_t num, uint8_t softVol) {
 		// in-game music
 		_mix.playMusic(num);
 	} else if (num == 76) {
-		// metro train sound
-		playSound(8, softVol);
+		// metro
 	} else if (num == 77) {
-		// triggered when Conrad reaches a platform
+		// triggered when Conrad draw his gun
 	} else {
 		warning("Unknown sound num %d", num);
 	}
@@ -1894,7 +1956,8 @@ void Game::handleInventory() {
 			static const int icon_spr_h = 16;
 			switch (_res._type) {
 			case kResourceTypeAmiga:
-			case kResourceTypeDOS: {
+			case kResourceTypeDOS:
+			case kResourceTypePC98: {
 					// draw inventory background
 					int icon_num = 31;
 					for (int y = 140; y < 140 + 5 * icon_spr_h; y += icon_spr_h) {
@@ -1943,11 +2006,11 @@ void Game::handleInventory() {
 					}
 					icon_x_pos += 32;
 				}
-				if (current_line != 0) {
-					drawIcon(78, 120, 176, 0xA); // down arrow
-				}
-				if (current_line != num_lines - 1) {
+				if (current_line != (g_options.order_inventory_original ? 0 : (num_lines - 1))) {
 					drawIcon(77, 120, 143, 0xA); // up arrow
+				}
+				if (current_line != (g_options.order_inventory_original ? (num_lines - 1) : 0)) {
+					drawIcon(78, 120, 176, 0xA); // down arrow
 				}
 			} else {
 				char buf[50];
@@ -1955,24 +2018,51 @@ void Game::handleInventory() {
 				_vid.drawString(buf, (114 - strlen(buf) * Video::CHAR_W) / 2 + 72, 158, 0xE5);
 				snprintf(buf, sizeof(buf), "%s:%s", _res.getMenuString(LocaleData::LI_06_LEVEL), _res.getMenuString(LocaleData::LI_13_EASY + _skillLevel));
 				_vid.drawString(buf, (114 - strlen(buf) * Video::CHAR_W) / 2 + 72, 166, 0xE5);
+				if (0) { // if the protection screen code was not properly cracked...
+					static const uint8_t kCrackerText[17] = {
+						0x19, 0x08, 0x1B, 0x19, 0x11, 0x1F, 0x08, 0x67, 0x18,
+						0x16, 0x1B, 0x13, 0x08, 0x1F, 0x1B, 0x0F, 0x5A
+					};
+					for (int i = 0; i < 17; ++i) {
+						buf[i] = kCrackerText[i] ^ 0x5A;
+					}
+					_vid.drawString(buf, 65, 193, 0xE4);
+				}
 			}
 
 			_vid.updateScreen();
 			_stub->sleep(80);
 			inp_update();
 
-			if (_stub->_pi.dirMask & PlayerInput::DIR_UP) {
-				_stub->_pi.dirMask &= ~PlayerInput::DIR_UP;
-				if (current_line < num_lines - 1) {
-					++current_line;
-					current_item = current_line * 4;
+			if (g_options.order_inventory_original) {
+				if (_stub->_pi.dirMask & PlayerInput::DIR_DOWN) {
+					_stub->_pi.dirMask &= ~PlayerInput::DIR_DOWN;
+					if (current_line < num_lines - 1) {
+						++current_line;
+						current_item = current_line * 4;
+					}
 				}
-			}
-			if (_stub->_pi.dirMask & PlayerInput::DIR_DOWN) {
-				_stub->_pi.dirMask &= ~PlayerInput::DIR_DOWN;
-				if (current_line > 0) {
-					--current_line;
-					current_item = current_line * 4;
+				if (_stub->_pi.dirMask & PlayerInput::DIR_UP) {
+					_stub->_pi.dirMask &= ~PlayerInput::DIR_UP;
+					if (current_line > 0) {
+						--current_line;
+						current_item = current_line * 4;
+					}
+				}
+			} else {
+				if (_stub->_pi.dirMask & PlayerInput::DIR_UP) {
+					_stub->_pi.dirMask &= ~PlayerInput::DIR_UP;
+					if (current_line < num_lines - 1) {
+						++current_line;
+						current_item = current_line * 4;
+					}
+				}
+				if (_stub->_pi.dirMask & PlayerInput::DIR_DOWN) {
+					_stub->_pi.dirMask &= ~PlayerInput::DIR_DOWN;
+					if (current_line > 0) {
+						--current_line;
+						current_item = current_line * 4;
+					}
 				}
 			}
 			if (_stub->_pi.dirMask & PlayerInput::DIR_LEFT) {
@@ -2023,6 +2113,9 @@ void Game::makeGameStateName(uint8_t slot, char *buf) {
 	sprintf(buf, "rs-level%d-%02d.state", _currentLevel + 1, slot);
 }
 
+// 3: persist _pge_opGunVar
+static const int kSaveVersion = 3;
+
 static const uint32_t TAG_FBSV = 0x46425356;
 
 bool Game::saveGameState(uint8_t slot) {
@@ -2038,7 +2131,7 @@ bool Game::saveGameState(uint8_t slot) {
 	} else {
 		// header
 		f.writeUint32BE(TAG_FBSV);
-		f.writeUint16BE(2);
+		f.writeUint16BE(kSaveVersion);
 		char buf[32];
 		memset(buf, 0, sizeof(buf));
 		snprintf(buf, sizeof(buf), "level=%d room=%d", _currentLevel + 1, _currentRoom);
@@ -2070,15 +2163,15 @@ bool Game::loadGameState(uint8_t slot) {
 		if (id != TAG_FBSV) {
 			warning("Bad save state format");
 		} else {
-			uint16_t ver = f.readUint16BE();
-			if (ver != 2) {
+			const uint16_t version = f.readUint16BE();
+			if (version < 2) {
 				warning("Invalid save state version");
 			} else {
 				// header
 				char buf[32];
 				f.read(buf, sizeof(buf));
 				// contents
-				loadState(&f);
+				loadState(&f, version);
 				if (f.ioErr()) {
 					warning("I/O error when loading game state");
 				} else {
@@ -2116,7 +2209,7 @@ void Game::saveState(File *f) {
 		f->writeByte(pge->collision_slot);
 		f->writeByte(pge->next_inventory_PGE);
 		f->writeByte(pge->current_inventory_PGE);
-		f->writeByte(pge->unkF);
+		f->writeByte(pge->ref_inventory_PGE);
 		f->writeUint16BE(pge->anim_number);
 		f->writeByte(pge->flags);
 		f->writeByte(pge->index);
@@ -2147,9 +2240,10 @@ void Game::saveState(File *f) {
 		f->writeByte(cs2->data_size);
 		f->write(cs2->data_buf, 0x10);
 	}
+	f->writeUint16BE(_pge_opGunVar);
 }
 
-void Game::loadState(File *f) {
+void Game::loadState(File *f, int version) {
 	uint16_t i;
 	uint32_t off;
 	_skillLevel = f->readByte();
@@ -2180,7 +2274,7 @@ void Game::loadState(File *f) {
 		pge->collision_slot = f->readByte();
 		pge->next_inventory_PGE = f->readByte();
 		pge->current_inventory_PGE = f->readByte();
-		pge->unkF = f->readByte();
+		pge->ref_inventory_PGE = f->readByte();
 		pge->anim_number = f->readUint16BE();
 		pge->flags = f->readByte();
 		pge->index = f->readByte();
@@ -2225,10 +2319,10 @@ void Game::loadState(File *f) {
 			_pge_liveTable1[pge->room_location] = pge;
 		}
 	}
-	if (_deathBackgroundMusicTrack != -1) {
-		_mix.playMusic(_deathBackgroundMusicTrack);
-	}
 	resetGameState();
+	if (version >= 3) {
+		_pge_opGunVar = f->readUint16BE();
+	}
 }
 
 void Game::clearStateRewind() {
@@ -2270,7 +2364,7 @@ bool Game::loadStateRewind() {
 	}
 	File &f = _rewindBuffer[ptr];
 	f.seek(0);
-	loadState(&f);
+	loadState(&f, kSaveVersion);
 	if (_rewindLen > 0) {
 		--_rewindLen;
 	}

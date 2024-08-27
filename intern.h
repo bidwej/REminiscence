@@ -38,23 +38,16 @@ inline uint32_t READ_LE_UINT32(const void *ptr) {
 
 inline int16_t ADDC_S16(int a, int b) {
 	a += b;
-	if (a < -32768) {
-		a = -32768;
-	} else if (a > 32767) {
-		a = 32767;
+	if (a <= -32768) {
+		return -32768;
+	} else if (a >= 32767) {
+		return 32767;
 	}
 	return a;
 }
 
-inline int16_t S8_to_S16(int a) {
-	if (a < -128) {
-		return -32768;
-	} else if (a > 127) {
-		return 32767;
-	} else {
-		const uint8_t u8 = (a ^ 0x80);
-		return ((u8 << 8) | u8) - 32768;
-	}
+inline int16_t S8_to_S16(int8_t a) {
+	return ((uint8_t)a) * 0x101;
 }
 
 template<typename T>
@@ -66,9 +59,9 @@ inline void SWAP(T &a, T &b) {
 
 template<typename T>
 inline T CLIP(const T& val, const T& a, const T& b) {
-	if (val < a) {
+	if (val <= a) {
 		return a;
-	} else if (val > b) {
+	} else if (val >= b) {
 		return b;
 	}
 	return val;
@@ -99,13 +92,13 @@ enum Language {
 	LANG_SP,
 	LANG_IT,
 	LANG_JP,
-	LANG_RU,
 };
 
 enum ResourceType {
 	kResourceTypeAmiga,
 	kResourceTypeDOS,
 	kResourceTypeMac,
+	kResourceTypePC98,
 };
 
 enum Skill {
@@ -119,7 +112,12 @@ enum WidescreenMode {
 	kWidescreenAdjacentRooms,
 	kWidescreenMirrorRoom,
 	kWidescreenBlur,
-	kWidescreenAdjacentRoomsBlur,
+	kWidescreenCDi,
+};
+
+enum {
+	kWidescreenBorderCDiW = 52,
+	kWidescreenBorderCDiH = 224
 };
 
 struct Options {
@@ -132,13 +130,16 @@ struct Options {
 	bool use_seq_cutscenes;
 	bool use_words_protection;
 	bool use_white_tshirt;
-	bool use_wrike_tshirt;
+	bool use_prf_music;
 	bool play_asc_cutscene;
 	bool play_caillou_cutscene;
 	bool play_metro_cutscene;
 	bool play_serrure_cutscene;
 	bool play_carte_cutscene;
 	bool play_gamesaved_sound;
+	bool restore_memo_cutscene;
+	bool order_inventory_original;
+	bool fix_fmopl_e0_reg;
 };
 
 struct Color {
@@ -154,9 +155,9 @@ struct Point {
 
 struct Demo {
 	const char *name;
-	int level;
-	int room;
-	int x, y;
+	uint8_t level;
+	uint8_t room;
+	uint8_t x, y;
 };
 
 struct Level {
@@ -174,8 +175,8 @@ struct InitPGE {
 	int16_t pos_y;
 	uint16_t obj_node_number;
 	uint16_t life;
-	int16_t counter_values[4]; // messages
-	uint8_t object_type;
+	int16_t data[4];
+	uint8_t object_type; // 1:conrad, 10:monster
 	uint8_t init_room;
 	uint8_t room_location;
 	uint8_t init_flags;
@@ -184,8 +185,8 @@ struct InitPGE {
 	uint8_t object_id;
 	uint8_t skill;
 	uint8_t mirror_x;
-	uint8_t flags;
-	uint8_t unk1C; // collidable, collision_data_len
+	uint8_t flags; // 1:xflip 4:active
+	uint8_t collision_data_len;
 	uint16_t text_num;
 };
 
@@ -196,11 +197,11 @@ struct LivePGE {
 	uint8_t anim_seq;
 	uint8_t room_location;
 	int16_t life;
-	int16_t counter_value; // msg
+	int16_t counter_value;
 	uint8_t collision_slot;
 	uint8_t next_inventory_PGE;
 	uint8_t current_inventory_PGE;
-	uint8_t unkF; // unk_inventory_PGE
+	uint8_t ref_inventory_PGE;
 	uint16_t anim_number;
 	uint8_t flags;
 	uint8_t index;
@@ -209,10 +210,10 @@ struct LivePGE {
 	InitPGE *init_PGE;
 };
 
-struct GroupPGE {
-	GroupPGE *next_entry;
-	uint16_t index;
-	uint16_t group_id;
+struct MessagePGE {
+	MessagePGE *next_entry;
+	uint16_t src_pge;
+	uint16_t msg_num;
 };
 
 struct Object {
@@ -231,9 +232,8 @@ struct Object {
 };
 
 struct ObjectNode {
-	uint16_t last_obj_number;
-	Object *objects;
 	uint16_t num_objects;
+	Object *objects;
 };
 
 struct ObjectOpcodeArgs {
@@ -270,9 +270,9 @@ struct BankSlot {
 
 struct CollisionSlot2 {
 	CollisionSlot2 *next_slot;
-	int8_t *unk2;
+	int8_t *unk2; // grid_data_pos
 	uint8_t data_size;
-	uint8_t data_buf[0x10]; // XXX check size
+	uint8_t data_buf[0x10]; // <= InitPGE.collision_data_len
 };
 
 struct InventoryItem {
@@ -287,6 +287,12 @@ struct SoundFx {
 	uint16_t freq;
 	uint8_t *data;
 	int8_t peak;
+};
+
+struct ResourceArchive {
+	virtual ~ResourceArchive() {};
+	virtual bool hasEntry(const char *name) const = 0;
+	virtual uint8_t *loadEntry(const char *name, uint32_t *size = 0) = 0;
 };
 
 extern Options g_options;

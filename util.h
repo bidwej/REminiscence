@@ -23,13 +23,20 @@ enum {
 	DBG_MOD    = 1 << 10,
 	DBG_SFX    = 1 << 11,
 	DBG_FILE   = 1 << 12,
-	DBG_DEMO   = 1 << 13
+	DBG_DEMO   = 1 << 13,
+	DBG_PRF    = 1 << 14,
+	DBG_MIDI   = 1 << 15,
+	DBG_PAQ    = 1 << 16
 };
 
-extern uint16_t g_debugMask;
+extern uint32_t g_debugMask;
 
-extern void debug(uint16_t cm, const char *msg, ...); // __attribute__((__format__(__printf__, 2, 3)))
-extern void error(const char *msg, ...);              // __attribute__((__format__(__printf__, 1, 2)))
-extern void warning(const char *msg, ...);            // __attribute__((__format__(__printf__, 1, 2)))
+extern void debug(uint32_t cm, const char *msg, ...);
+extern void error(const char *msg, ...);
+extern void warning(const char *msg, ...);
+
+#ifdef NDEBUG
+#define debug(x, ...)
+#endif
 
 #endif // UTIL_H__

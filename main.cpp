@@ -16,17 +16,17 @@
 #include "util.h"
 
 static const char *USAGE =
-	"Flashback: The Quest for Identity\n"
+	"REminiscence - Flashback Interpreter\n"
 	"Usage: %s [OPTIONS]...\n"
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
-	"  --savepath=PATH   Path to save files (default 'SAVE')\n"
-	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')\n"
+	"  --savepath=PATH   Path to save files (default '.')\n"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
-	"  --window          Play in window\n"
+	"  --fullscreen      Fullscreen display\n"
 	"  --widescreen=MODE 16:9 display (adjacent,mirror,blur,none)\n"
 	"  --scaler=NAME@X   Graphics scaler (default 'scale@3')\n"
-	"  --language=LANG   Language (fr,en,de,sp,it,jp,ru)\n"
+	"  --language=LANG   Language (fr,en,de,sp,it,jp)\n"
 	"  --autosave        Save game state automatically\n"
+	"  --mididriver=MIDI Driver (adlib, mt32)\n"
 ;
 
 static int detectVersion(FileSystem *fs) {
@@ -36,6 +36,7 @@ static int detectVersion(FileSystem *fs) {
 		const char *name;
 	} table[] = {
 		{ "DEMO_UK.ABA", kResourceTypeDOS, "DOS (Demo)" },
+		{ "GLOB_FR.ABA", kResourceTypeDOS, "DOS" },
 		{ "INTRO.SEQ", kResourceTypeDOS, "DOS CD" },
 		{ "MENU1SSI.MAP", kResourceTypeDOS, "DOS SSI" },
 		{ "LEVEL1.MAP", kResourceTypeDOS, "DOS" },
@@ -44,6 +45,7 @@ static int detectVersion(FileSystem *fs) {
 		{ "DEMO.LEV", kResourceTypeAmiga, "Amiga (Demo)" },
 		{ "FLASHBACK.BIN", kResourceTypeMac, "Macintosh" },
 		{ "FLASHBACK.RSRC", kResourceTypeMac, "Macintosh" },
+		{ "GLOBAL.PAQ", kResourceTypePC98, "PC98" },
 		{ 0, -1, 0 }
 	};
 	for (int i = 0; table[i].filename; ++i) {
@@ -61,10 +63,10 @@ static Language detectLanguage(FileSystem *fs) {
 		const char *filename;
 		Language language;
 	} table[] = {
-		// PC
+		// DOS
+		{ "GLOB_FR.ABA", LANG_FR },
 		{ "ENGCINE.TXT", LANG_EN },
 		{ "FR_CINE.TXT", LANG_FR },
-		{ "RUSCINE.TXT", LANG_RU },
 		{ "GERCINE.TXT", LANG_DE },
 		{ "SPACINE.TXT", LANG_SP },
 		{ "ITACINE.TXT", LANG_IT },
@@ -83,25 +85,28 @@ static Language detectLanguage(FileSystem *fs) {
 }
 
 Options g_options;
-const char *g_caption = "Flashback";
+const char *g_caption = "REminiscence";
 
 static void initOptions() {
 	// defaults
 	g_options.bypass_protection = true;
-	g_options.enable_password_menu = true;
+	g_options.enable_password_menu = false;
 	g_options.enable_language_selection = false;
 	g_options.fade_out_palette = true;
 	g_options.use_text_cutscenes = false;
 	g_options.use_seq_cutscenes = true;
 	g_options.use_words_protection = false;
-	g_options.use_white_tshirt = true; 
-	g_options.use_wrike_tshirt = false;
-	g_options.play_asc_cutscene = true;
-	g_options.play_caillou_cutscene = true;
-	g_options.play_metro_cutscene = true;
-	g_options.play_serrure_cutscene = true;
-	g_options.play_carte_cutscene = true;
+	g_options.use_white_tshirt = false;
+	g_options.use_prf_music = true;
+	g_options.play_asc_cutscene = false;
+	g_options.play_caillou_cutscene = false;
+	g_options.play_metro_cutscene = false;
+	g_options.play_serrure_cutscene = false;
+	g_options.play_carte_cutscene = false;
 	g_options.play_gamesaved_sound = false;
+	g_options.restore_memo_cutscene = true;
+	g_options.order_inventory_original = false;
+	g_options.fix_fmopl_e0_reg = false;
 	// read configuration file
 	struct {
 		const char *name;
@@ -116,15 +121,20 @@ static void initOptions() {
 		{ "use_seq_cutscenes", &g_options.use_seq_cutscenes },
 		{ "use_words_protection", &g_options.use_words_protection },
 		{ "use_white_tshirt", &g_options.use_white_tshirt },
+		{ "use_prf_music", &g_options.use_prf_music },
 		{ "play_asc_cutscene", &g_options.play_asc_cutscene },
 		{ "play_caillou_cutscene", &g_options.play_caillou_cutscene },
 		{ "play_metro_cutscene", &g_options.play_metro_cutscene },
 		{ "play_serrure_cutscene", &g_options.play_serrure_cutscene },
 		{ "play_carte_cutscene", &g_options.play_carte_cutscene },
 		{ "play_gamesaved_sound", &g_options.play_gamesaved_sound },
+		{ "restore_memo_cutscene", &g_options.restore_memo_cutscene },
+		{ "order_inventory_original", &g_options.order_inventory_original },
+		{ "fix_fmopl_e0_reg", &g_options.fix_fmopl_e0_reg },
 		{ 0, 0 }
 	};
-	FILE *fp = fopen("fb.cfg", "rb");
+	static const char *filename = "rs.cfg";
+	FILE *fp = fopen(filename, "rb");
 	if (fp) {
 		char buf[256];
 		while (fgets(buf, sizeof(buf), fp)) {
@@ -173,9 +183,9 @@ static WidescreenMode parseWidescreen(const char *mode) {
 		WidescreenMode mode;
 	} modes[] = {
 		{ "adjacent", kWidescreenAdjacentRooms },
-		{ "adjacent-blur", kWidescreenAdjacentRoomsBlur },
 		{ "mirror", kWidescreenMirrorRoom },
 		{ "blur", kWidescreenBlur },
+		{ "cdi", kWidescreenCDi },
 		{ 0, kWidescreenNone },
 	};
 	for (int i = 0; modes[i].name; ++i) {
@@ -189,15 +199,15 @@ static WidescreenMode parseWidescreen(const char *mode) {
 
 int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
-	const char *savePath = "SAVE";
-	const char *tunePath = "TUNES";
+	const char *savePath = ".";
 	int levelNum = 0;
-	bool fullscreen = true;
+	bool fullscreen = false;
 	bool autoSave = false;
-	bool useWrikeTShirt = false;
+	uint32_t cheats = 0;
 	WidescreenMode widescreen = kWidescreenNone;
 	ScalerParameters scalerParameters = ScalerParameters::defaults();
 	int forcedLanguage = -1;
+	int midiDriver = MODE_ADLIB;
 	if (argc == 2) {
 		// data path as the only command line argument
 		struct stat st;
@@ -207,16 +217,16 @@ int main(int argc, char *argv[]) {
 	}
 	while (1) {
 		static struct option options[] = {
-			{ "datapath",   required_argument, 0, 1  },
-			{ "savepath",   required_argument, 0, 2  },
-			{ "tunepath",   required_argument, 0, 3  },
-			{ "levelnum",   required_argument, 0, 4  },
-			{ "window",	    no_argument,       0, 5  },
-			{ "scaler",     required_argument, 0, 6  },
-			{ "language",   required_argument, 0, 7  },
-			{ "widescreen", required_argument, 0, 8  },
-			{ "autosave",   no_argument,       0, 9  },
-			{ "wrike",      no_argument,       0, 10 },
+			{ "datapath",   required_argument, 0, 1 },
+			{ "savepath",   required_argument, 0, 2 },
+			{ "levelnum",   required_argument, 0, 3 },
+			{ "fullscreen", no_argument,       0, 4 },
+			{ "scaler",     required_argument, 0, 5 },
+			{ "language",   required_argument, 0, 6 },
+			{ "widescreen", required_argument, 0, 7 },
+			{ "autosave",   no_argument,       0, 8 },
+			{ "cheats",     required_argument, 0, 9 },
+			{ "mididriver", required_argument, 0, 10 },
 			{ 0, 0, 0, 0 }
 		};
 		int index;
@@ -232,18 +242,15 @@ int main(int argc, char *argv[]) {
 			savePath = strdup(optarg);
 			break;
 		case 3:
-			tunePath = strdup(optarg);
-			break;
-		case 4:
 			levelNum = atoi(optarg);
 			break;
-		case 5:
-			fullscreen = false;
+		case 4:
+			fullscreen = true;
 			break;
-		case 6:
+		case 5:
 			parseScaler(optarg, &scalerParameters);
 			break;
-		case 7: {
+		case 6: {
 				static const struct {
 					int lang;
 					const char *str;
@@ -254,25 +261,49 @@ int main(int argc, char *argv[]) {
 					{ LANG_SP, "SP" },
 					{ LANG_IT, "IT" },
 					{ LANG_JP, "JP" },
-					{ LANG_RU, "RU" },
 					{ -1, 0 }
 				};
-				for (int i = 0; languages[i].str; ++i) {
+				int i = 0;
+				for (; languages[i].str; ++i) {
 					if (strcasecmp(languages[i].str, optarg) == 0) {
 						forcedLanguage = languages[i].lang;
 						break;
 					}
 				}
+				if (!languages[i].str) {
+					warning("Invalid language '%s'", optarg);
+				}
 			}
 			break;
-		case 8:
+		case 7:
 			widescreen = parseWidescreen(optarg);
 			break;
-		case 9:
+		case 8:
 			autoSave = true;
 			break;
-		case 10:
-			useWrikeTShirt = true;
+		case 9:
+			cheats = atoi(optarg);
+			break;
+		case 10: {
+				static const struct {
+					int mode;
+					const char *str;
+				} drivers[] = {
+					{ MODE_ADLIB, "adlib" },
+					{ MODE_MT32, "mt32" },
+					{ -1, 0 }
+				};
+				int i = 0;
+				for (; drivers[i].str; ++i) {
+					if (strcasecmp(drivers[i].str, optarg) == 0) {
+						midiDriver = drivers[i].mode;
+						break;
+					}
+				}
+				if (!drivers[i].str) {
+					warning("Invalid MIDI driver '%s'", optarg);
+				}
+			}
 			break;
 		default:
 			printf(USAGE, argv[0]);
@@ -280,12 +311,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	initOptions();
-	if (useWrikeTShirt) {
-		g_options.use_wrike_tshirt = true;
-	}
-	g_debugMask = DBG_INFO; // | DBG_MOD | DBG_SFX | DBG_SND | DBG_FILE | DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL
+	g_debugMask = DBG_INFO; // DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL | DBG_MOD | DBG_SFX | DBG_FILE;
 	FileSystem fs(dataPath);
-	FileSystem tune_fs(tunePath);
 	const int version = detectVersion(&fs);
 	if (version == -1) {
 		error("Unable to find data files, check that all required files are present");
@@ -293,7 +320,7 @@ int main(int argc, char *argv[]) {
 	}
 	const Language language = (forcedLanguage == -1) ? detectLanguage(&fs) : (Language)forcedLanguage;
 	SystemStub *stub = SystemStub_SDL_create();
-	Game *g = new Game(stub, &fs, &tune_fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave);
+	Game *g = new Game(stub, &fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, midiDriver, cheats);
 	stub->init(g_caption, g->_vid._w, g->_vid._h, fullscreen, widescreen, &scalerParameters);
 	g->run();
 	delete g;

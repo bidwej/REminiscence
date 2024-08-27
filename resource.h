@@ -10,6 +10,7 @@
 #include "intern.h"
 #include "resource_aba.h"
 #include "resource_mac.h"
+#include "resource_paq.h"
 
 struct DecodeBuffer;
 struct File;
@@ -45,14 +46,12 @@ struct LocaleData {
 	};
 
 	static const char *_textsTableFR[];
-	static const char *_textsTableRU[];
 	static const char *_textsTableEN[];
 	static const char *_textsTableDE[];
 	static const char *_textsTableSP[];
 	static const char *_textsTableIT[];
 
 	static const uint8_t _stringsTableFR[];
-	static const uint8_t _stringsTableRU[];
 	static const uint8_t _stringsTableEN[];
 	static const uint8_t _stringsTableDE[];
 	static const uint8_t _stringsTableSP[];
@@ -123,14 +122,15 @@ struct Resource {
 	static const char *_splNames[];
 	static const uint8_t _gameSavedSoundData[];
 	static const uint16_t _gameSavedSoundLen;
-	static const char *_controllerMapping;
 
 	FileSystem *_fs;
 	ResourceType _type;
 	Language _lang;
 	bool _isDemo;
+	ResourceArchive *_archive;
 	ResourceAba *_aba;
 	ResourceMac *_mac;
+	ResourcePaq *_paq;
 	uint16_t (*_readUint16)(const void *);
 	uint32_t (*_readUint32)(const void *);
 	bool _hasSeqData;
@@ -140,13 +140,13 @@ struct Resource {
 	uint8_t *_icn;
 	int _icnLen;
 	uint8_t *_tab;
-	uint8_t *_spc; // BE
+	uint8_t *_spc;
 	uint16_t _numSpc;
-	uint8_t _rp[0x4A];
-	uint8_t *_pal; // BE
+	uint8_t _rp[74];
+	uint8_t *_pal;
 	uint8_t *_ani;
 	uint8_t *_tbn;
-	int8_t _ctData[0x1D00];
+	int8_t _ctData[256 + 112 * 64];
 	uint8_t *_spr1;
 	uint8_t *_sprData[NUM_SPRITES]; // 0-0x22F + 0x28E-0x2E9 ... conrad, 0x22F-0x28D : junkie
 	uint8_t _sprm[0x10000];
@@ -195,6 +195,7 @@ struct Resource {
 	bool isDOS()   const { return _type == kResourceTypeDOS; }
 	bool isAmiga() const { return _type == kResourceTypeAmiga; }
 	bool isMac()   const { return _type == kResourceTypeMac; }
+	bool isPC98()  const { return _type == kResourceTypePC98; }
 
 	bool fileExists(const char *filename);
 
@@ -316,12 +317,26 @@ struct Resource {
 	const char *getMenuString(int num) const {
 		return (num >= 0 && num < LocaleData::LI_NUM) ? _textsTable[num] : "";
 	}
+	const uint8_t *getCreditsString(int num) {
+		assert(_type == kResourceTypeMac);
+		const int count = READ_BE_UINT16(_credits);
+		if (num < count) {
+			const int offset = READ_BE_UINT16(_credits + 2 + num * 2);
+			return _credits + offset;
+		}
+		return 0;
+	}
 	void clearBankData();
 	int getBankDataSize(uint16_t num);
 	uint8_t *findBankData(uint16_t num);
 	uint8_t *loadBankData(uint16_t num);
 
+	void PC98_loadLevelMap(int level);
+	void PC98_loadSounds();
+
+	uint8_t *decodeResourceMacText(const char *name, const char *suffix);
 	uint8_t *decodeResourceMacData(const char *name, bool decompressLzss);
+	uint8_t *decodeResourceMacData(const ResourceMacEntry *entry, bool decompressLzss);
 	void MAC_decodeImageData(const uint8_t *ptr, int i, DecodeBuffer *dst);
 	void MAC_decodeDataCLUT(const uint8_t *ptr);
 	void MAC_loadClutData();
@@ -345,7 +360,7 @@ struct Resource {
 	void MAC_loadSounds();
 
 	int MAC_getPersoFrame(int anim) const {
-		static const int data[] = {
+		static const int16_t data[] = {
 			0x000, 0x22E,
 			0x28E, 0x2E9,
 			0x4E9, 0x506,
@@ -363,7 +378,7 @@ struct Resource {
 		return 0;
 	}
 	int MAC_getMonsterFrame(int anim) const {
-		static const int data[] = {
+		static const int16_t data[] = {
 			0x22F, 0x28D, // junky - 94
 			0x2EA, 0x385, // mercenai - 156
 			0x387, 0x42F, // replican - 169

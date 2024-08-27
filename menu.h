@@ -49,7 +49,6 @@ struct Menu {
 	};
 
 	static const char *_levelNames[];
-	static const char *_levelNamesRu[];
 	static const char *_passwordsDOS[];
 	static const char *_passwordsFrAmiga[];
 	static const char *_passwordsEnAmiga[];
@@ -57,7 +56,6 @@ struct Menu {
 
 	static const uint8_t _flagEn16x12[];
 	static const uint8_t _flagFr16x12[];
-	static const uint8_t _flagRu16x12[];
 	static const uint8_t _flagDe16x12[];
 	static const uint8_t _flagIt16x12[];
 	static const uint8_t _flagJp16x12[];
@@ -93,7 +91,6 @@ struct Menu {
 	void handleTitleScreen();
 
 	const char *getLevelPassword(int level, int skill) const;
-	const char *getLevelName(int level) const;
 };
 
 #endif // MENU_H__
