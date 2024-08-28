@@ -64,7 +64,6 @@ struct SfxPlayer {
 	static const Module _module73;
 	static const Module _module74;
 	static const Module _module75;
-	static const Module _module76;
 	static const uint16_t _periodTable[];
 
 	const Module *_mod;

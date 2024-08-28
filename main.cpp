@@ -19,6 +19,7 @@ static const char *USAGE =
 	"Usage: %s [OPTIONS]...\n"
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
 	"  --savepath=PATH   Path to save files (default '.')\n"
+	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
 	"  --window          Play in window\n"
 	"  --widescreen=MODE 16:9 display (adjacent,adjacent-blur,mirror,blur,none)\n"
@@ -198,6 +199,7 @@ static WidescreenMode parseWidescreen(const char *mode) {
 
 int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
+	const char *tunePath = "TUNES";
 	const char *savePath = "SAVE";
 	int levelNum = 0;
 	bool fullscreen = true;
@@ -217,13 +219,14 @@ int main(int argc, char *argv[]) {
 		static struct option options[] = {
 			{ "datapath",   required_argument, 0, 1 },
 			{ "savepath",   required_argument, 0, 2 },
-			{ "levelnum",   required_argument, 0, 3 },
-			{ "window",     no_argument,       0, 4 },
-			{ "scaler",     required_argument, 0, 5 },
-			{ "language",   required_argument, 0, 6 },
-			{ "widescreen", required_argument, 0, 7 },
-			{ "autosave",   no_argument,       0, 8 },
-			{ "cheats",     required_argument, 0, 9 },
+			{ "tunepath",   required_argument, 0, 3 },
+			{ "levelnum",   required_argument, 0, 4 },
+			{ "window",     no_argument,       0, 5 },
+			{ "scaler",     required_argument, 0, 6 },
+			{ "language",   required_argument, 0, 7 },
+			{ "widescreen", required_argument, 0, 8 },
+			{ "autosave",   no_argument,       0, 9 },
+			{ "cheats",     required_argument, 0, 10 },
 			{ 0, 0, 0, 0 }
 		};
 		int index;
@@ -239,15 +242,18 @@ int main(int argc, char *argv[]) {
 			savePath = strdup(optarg);
 			break;
 		case 3:
-			levelNum = atoi(optarg);
+			tunePath = strdup(optarg);
 			break;
 		case 4:
-			fullscreen = false;
+			levelNum = atoi(optarg);
 			break;
 		case 5:
+			fullscreen = false;
+			break;
+		case 6:
 			parseScaler(optarg, &scalerParameters);
 			break;
-		case 6: {
+		case 7: {
 				static const struct {
 					int lang;
 					const char *str;
@@ -273,13 +279,13 @@ int main(int argc, char *argv[]) {
 				}
 			}
 			break;
-		case 7:
+		case 8:
 			widescreen = parseWidescreen(optarg);
 			break;
-		case 8:
+		case 9:
 			autoSave = true;
 			break;
-		case 9:
+		case 10:
 			cheats = atoi(optarg);
 			break;
 		default:
@@ -295,9 +301,10 @@ int main(int argc, char *argv[]) {
 		error("Unable to find data files, check that all required files are present");
 		return -1;
 	}
+	FileSystem tuneFs(tunePath);
 	const Language language = (forcedLanguage == -1) ? detectLanguage(&fs) : (Language)forcedLanguage;
 	SystemStub *stub = SystemStub_SDL_create();
-	Game *g = new Game(stub, &fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, cheats);
+	Game *g = new Game(stub, &fs, &tuneFs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, cheats);
 	stub->init(g_caption, g->_vid._w, g->_vid._h, fullscreen, widescreen, &scalerParameters);
 	g->run();
 	delete g;

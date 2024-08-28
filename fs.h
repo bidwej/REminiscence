@@ -19,6 +19,7 @@ struct FileSystem {
 
 	char *findPath(const char *filename) const;
 	bool exists(const char *filename) const;
+	bool mkdir(const char *filename) const;
 };
 
 #endif // FS_H__

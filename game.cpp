@@ -14,9 +14,9 @@
 #include "systemstub.h"
 #include "util.h"
 
-Game::Game(SystemStub *stub, FileSystem *fs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, uint32_t cheats)
+Game::Game(SystemStub *stub, FileSystem *fs, FileSystem *tuneFs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, uint32_t cheats)
 	: _cut(&_res, stub, &_vid), _menu(&_res, stub, &_vid),
-	_mix(fs, stub), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
+	_mix(tuneFs, stub), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
 	_stub(stub), _fs(fs), _savePath(savePath) {
 	_stateSlot = 1;
 	_inp_demPos = 0;
@@ -1903,12 +1903,12 @@ void Game::playSound(uint8_t num, uint8_t softVol) {
 		}
 	} else if (num == 66) {
 		// open/close inventory (DOS)
-	} else if (num >= 68 && num <= 76) {
+	} else if (num >= 68 && num <= 75) {
 		// in-game music
 		_mix.playMusic(num);
-	// } else if (num == 76) {
-	// 	// metro
-	// 	playSound(8, softVol)
+	} else if (num == 76) {
+		// metro
+		playSound(8, softVol);
 	} else if (num == 77) {
 		// triggered when Conrad draw his gun
 	} else {
