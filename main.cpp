@@ -11,6 +11,7 @@
 #include "file.h"
 #include "fs.h"
 #include "game.h"
+#include "intern.h"
 #include "systemstub.h"
 #include "util.h"
 
@@ -197,6 +198,15 @@ static WidescreenMode parseWidescreen(const char *mode) {
 	return kWidescreenBlur;
 }
 
+static bool makeDir(const char *name) {
+	struct stat st = {0};
+	if (stat(name, &st) == -1) {
+		return mkdir(name, 0700) == 0;
+	} else {
+		return true;
+	}
+}
+
 int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
 	const char *tunePath = "TUNES";
@@ -299,6 +309,10 @@ int main(int argc, char *argv[]) {
 	const int version = detectVersion(&fs);
 	if (version == -1) {
 		error("Unable to find data files, check that all required files are present");
+		return -1;
+	}
+	if (!makeDir(tunePath) || !makeDir(savePath)) {
+		error("Unable to create directories");
 		return -1;
 	}
 	FileSystem tuneFs(tunePath);

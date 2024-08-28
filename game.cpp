@@ -2114,7 +2114,7 @@ void Game::inp_update() {
 }
 
 void Game::makeGameStateName(uint8_t slot, char *buf) {
-	sprintf(buf, "rs-level%d-%02d.state", _currentLevel + 1, slot);
+	sprintf(buf, "fb-level%d-%02d.state", _currentLevel + 1, slot);
 }
 
 // 3: persist _pge_opGunVar
