@@ -198,7 +198,7 @@ static WidescreenMode parseWidescreen(const char *mode) {
 
 int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
-	const char *savePath = ".";
+	const char *savePath = "SAVE";
 	int levelNum = 0;
 	bool fullscreen = true;
 	bool autoSave = false;
