@@ -14,9 +14,9 @@
 #include "systemstub.h"
 #include "util.h"
 
-Game::Game(SystemStub *stub, FileSystem *fs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, int midiDriver, uint32_t cheats)
+Game::Game(SystemStub *stub, FileSystem *fs, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, uint32_t cheats)
 	: _cut(&_res, stub, &_vid), _menu(&_res, stub, &_vid),
-	_mix(fs, stub, midiDriver), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
+	_mix(fs, stub), _res(fs, ver, lang), _seq(stub, &_mix), _vid(&_res, stub, widescreenMode),
 	_stub(stub), _fs(fs), _savePath(savePath) {
 	_stateSlot = 1;
 	_inp_demPos = 0;
@@ -245,7 +245,7 @@ void Game::displayTitleScreenAmiga() {
 			static const uint8_t selectedColor = 0xE4;
 			static const uint8_t defaultColor = 0xE8;
 			for (int i = 0; i < 7; ++i) {
-				const char *str = Menu::_levelNames[i];
+				const char *str = _menu.getLevelName(i);
 				const uint8_t color = (_currentLevel == i) ? selectedColor : defaultColor;
 				const int x = 24;
 				const int y = 24 + i * 16;
@@ -341,7 +341,7 @@ void Game::displayTitleScreenMac(int num) {
 			static const uint8_t selectedColor = 0xE4;
 			static const uint8_t defaultColor = 0xE8;
 			for (int i = 0; i < 7; ++i) {
-				const char *str = Menu::_levelNames[i];
+				const char *str = _menu.getLevelName(i);
 				_vid.drawString(str, 24, 24 + i * 16, (_currentLevel == i) ? selectedColor : defaultColor);
 			}
 			if (_stub->_pi.dirMask & PlayerInput::DIR_UP) {
@@ -621,7 +621,10 @@ void Game::inp_handleSpecialKeys() {
 		_stub->_pi.load = false;
 	}
 	if (_stub->_pi.save) {
-		saveGameState(_stateSlot);
+	_validSaveState = saveGameState(_stateSlot);
+		if (_validSaveState and g_options.play_gamesaved_sound) {
+			_mix.play(Resource::_gameSavedSoundData, Resource::_gameSavedSoundLen, 8000, Mixer::MAX_VOLUME);
+		}
 		_stub->_pi.save = false;
 	}
 	if (_stub->_pi.stateSlot != 0) {
@@ -1619,18 +1622,18 @@ void Game::loadLevelMap() {
 		_vid.AMIGA_decodeLev(_currentLevel, _currentRoom);
 		break;
 	case kResourceTypeDOS:
-		if (_stub->hasWidescreen() && _widescreenMode == kWidescreenAdjacentRooms) {
+		if (_stub->hasWidescreen() && (_widescreenMode == kWidescreenAdjacentRooms || _widescreenMode == kWidescreenAdjacentRoomsBlur)) {
 			const int leftRoom = _res._ctData[CT_LEFT_ROOM + _currentRoom];
 			if (leftRoom >= 0 && hasLevelMap(_currentLevel, leftRoom) && !isMetro(_currentLevel, leftRoom)) {
 				_vid.DOS_decodeMap(_currentLevel, leftRoom);
-				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer);
+				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
 			} else {
 				_stub->copyWidescreenLeft(Video::GAMESCREEN_W, Video::GAMESCREEN_H, 0);
 			}
 			const int rightRoom = _res._ctData[CT_RIGHT_ROOM + _currentRoom];
 			if (rightRoom >= 0 && hasLevelMap(_currentLevel, rightRoom) && !isMetro(_currentLevel, rightRoom)) {
 				_vid.DOS_decodeMap(_currentLevel, rightRoom);
-				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer);
+				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
 			} else {
 				_stub->copyWidescreenRight(Video::GAMESCREEN_W, Video::GAMESCREEN_H, 0);
 			}
@@ -1639,18 +1642,18 @@ void Game::loadLevelMap() {
 		_vid.DOS_decodeMap(_currentLevel, _currentRoom);
 		break;
 	case kResourceTypeMac:
-		if (_stub->hasWidescreen() && _widescreenMode == kWidescreenAdjacentRooms) {
+		if (_stub->hasWidescreen() && (_widescreenMode == kWidescreenAdjacentRooms || _widescreenMode == kWidescreenAdjacentRoomsBlur)) {
 			const int leftRoom = _res._ctData[CT_LEFT_ROOM + _currentRoom];
 			if (leftRoom >= 0 && hasLevelMap(_currentLevel, leftRoom)) {
 				_vid.MAC_decodeMap(_currentLevel, leftRoom);
-				_stub->copyWidescreenLeft(_vid._w, _vid._h, _vid._backLayer);
+				_stub->copyWidescreenLeft(_vid._w, _vid._h, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
 			} else {
 				_stub->copyWidescreenLeft(_vid._w, _vid._h, 0);
 			}
 			const int rightRoom = _res._ctData[CT_RIGHT_ROOM + _currentRoom];
 			if (rightRoom >= 0 && hasLevelMap(_currentLevel, rightRoom)) {
 				_vid.MAC_decodeMap(_currentLevel, rightRoom);
-				_stub->copyWidescreenRight(_vid._w, _vid._h, _vid._backLayer);
+				_stub->copyWidescreenRight(_vid._w, _vid._h, _vid._backLayer, _widescreenMode == kWidescreenAdjacentRooms);
 			} else {
 				_stub->copyWidescreenRight(_vid._w, _vid._h, 0);
 			}
@@ -1900,11 +1903,12 @@ void Game::playSound(uint8_t num, uint8_t softVol) {
 		}
 	} else if (num == 66) {
 		// open/close inventory (DOS)
-	} else if (num >= 68 && num <= 75) {
+	} else if (num >= 68 && num <= 76) {
 		// in-game music
 		_mix.playMusic(num);
-	} else if (num == 76) {
-		// metro
+	// } else if (num == 76) {
+	// 	// metro
+	// 	playSound(8, softVol)
 	} else if (num == 77) {
 		// triggered when Conrad draw his gun
 	} else {

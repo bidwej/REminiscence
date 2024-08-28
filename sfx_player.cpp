@@ -37,10 +37,11 @@ SfxPlayer::SfxPlayer(Mixer *mixer)
 void SfxPlayer::play(uint8_t num) {
 	debug(DBG_SFX, "SfxPlayer::play(%d)", num);
 	if (!_playing) {
-		assert(num >= 68 && num <= 75);
+		assert(num >= 68 && num <= 76);
 		static const Module *modTable[] = {
 			&_module68, &_module68, &_module70, &_module70,
-			&_module72, &_module73, &_module74, &_module75
+			&_module72, &_module73, &_module74, &_module75,
+			&_module76
 		};
 		_mod = modTable[num - 68];
 		_curOrder = 0;

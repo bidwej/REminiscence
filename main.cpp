@@ -11,7 +11,6 @@
 #include "file.h"
 #include "fs.h"
 #include "game.h"
-#include "scaler.h"
 #include "systemstub.h"
 #include "util.h"
 
@@ -21,12 +20,11 @@ static const char *USAGE =
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
 	"  --savepath=PATH   Path to save files (default '.')\n"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
-	"  --fullscreen      Fullscreen display\n"
-	"  --widescreen=MODE 16:9 display (adjacent,mirror,blur,none)\n"
+	"  --window          Play in window\n"
+	"  --widescreen=MODE 16:9 display (adjacent,adjacent-blur,mirror,blur,none)\n"
 	"  --scaler=NAME@X   Graphics scaler (default 'scale@3')\n"
-	"  --language=LANG   Language (fr,en,de,sp,it,jp)\n"
+	"  --language=LANG   Language (fr,en,de,sp,it,jp,ru)\n"
 	"  --autosave        Save game state automatically\n"
-	"  --mididriver=MIDI Driver (adlib, mt32)\n"
 ;
 
 static int detectVersion(FileSystem *fs) {
@@ -67,6 +65,7 @@ static Language detectLanguage(FileSystem *fs) {
 		{ "GLOB_FR.ABA", LANG_FR },
 		{ "ENGCINE.TXT", LANG_EN },
 		{ "FR_CINE.TXT", LANG_FR },
+		{ "RUSCINE.TXT", LANG_RU },
 		{ "GERCINE.TXT", LANG_DE },
 		{ "SPACINE.TXT", LANG_SP },
 		{ "ITACINE.TXT", LANG_IT },
@@ -87,17 +86,16 @@ static Language detectLanguage(FileSystem *fs) {
 Options g_options;
 const char *g_caption = "REminiscence";
 
-static void initOptions() {
+static void initOptions(char *config_file) {
 	// defaults
 	g_options.bypass_protection = true;
-	g_options.enable_password_menu = false;
+	g_options.enable_password_menu = true;
 	g_options.enable_language_selection = false;
 	g_options.fade_out_palette = true;
 	g_options.use_text_cutscenes = false;
 	g_options.use_seq_cutscenes = true;
 	g_options.use_words_protection = false;
 	g_options.use_white_tshirt = false;
-	g_options.use_prf_music = true;
 	g_options.play_asc_cutscene = false;
 	g_options.play_caillou_cutscene = false;
 	g_options.play_metro_cutscene = false;
@@ -121,7 +119,6 @@ static void initOptions() {
 		{ "use_seq_cutscenes", &g_options.use_seq_cutscenes },
 		{ "use_words_protection", &g_options.use_words_protection },
 		{ "use_white_tshirt", &g_options.use_white_tshirt },
-		{ "use_prf_music", &g_options.use_prf_music },
 		{ "play_asc_cutscene", &g_options.play_asc_cutscene },
 		{ "play_caillou_cutscene", &g_options.play_caillou_cutscene },
 		{ "play_metro_cutscene", &g_options.play_metro_cutscene },
@@ -133,7 +130,8 @@ static void initOptions() {
 		{ "fix_fmopl_e0_reg", &g_options.fix_fmopl_e0_reg },
 		{ 0, 0 }
 	};
-	static const char *filename = "rs.cfg";
+	char filename[16];
+	snprintf(filename, sizeof(filename), "%s.cfg", config_file);
 	FILE *fp = fopen(filename, "rb");
 	if (fp) {
 		char buf[256];
@@ -183,6 +181,7 @@ static WidescreenMode parseWidescreen(const char *mode) {
 		WidescreenMode mode;
 	} modes[] = {
 		{ "adjacent", kWidescreenAdjacentRooms },
+		{ "adjacent-blur", kWidescreenAdjacentRoomsBlur },
 		{ "mirror", kWidescreenMirrorRoom },
 		{ "blur", kWidescreenBlur },
 		{ "cdi", kWidescreenCDi },
@@ -201,13 +200,12 @@ int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
 	const char *savePath = ".";
 	int levelNum = 0;
-	bool fullscreen = false;
+	bool fullscreen = true;
 	bool autoSave = false;
 	uint32_t cheats = 0;
 	WidescreenMode widescreen = kWidescreenNone;
 	ScalerParameters scalerParameters = ScalerParameters::defaults();
 	int forcedLanguage = -1;
-	int midiDriver = MODE_ADLIB;
 	if (argc == 2) {
 		// data path as the only command line argument
 		struct stat st;
@@ -220,13 +218,12 @@ int main(int argc, char *argv[]) {
 			{ "datapath",   required_argument, 0, 1 },
 			{ "savepath",   required_argument, 0, 2 },
 			{ "levelnum",   required_argument, 0, 3 },
-			{ "fullscreen", no_argument,       0, 4 },
+			{ "window",     no_argument,       0, 4 },
 			{ "scaler",     required_argument, 0, 5 },
 			{ "language",   required_argument, 0, 6 },
 			{ "widescreen", required_argument, 0, 7 },
 			{ "autosave",   no_argument,       0, 8 },
 			{ "cheats",     required_argument, 0, 9 },
-			{ "mididriver", required_argument, 0, 10 },
 			{ 0, 0, 0, 0 }
 		};
 		int index;
@@ -245,7 +242,7 @@ int main(int argc, char *argv[]) {
 			levelNum = atoi(optarg);
 			break;
 		case 4:
-			fullscreen = true;
+			fullscreen = false;
 			break;
 		case 5:
 			parseScaler(optarg, &scalerParameters);
@@ -261,6 +258,7 @@ int main(int argc, char *argv[]) {
 					{ LANG_SP, "SP" },
 					{ LANG_IT, "IT" },
 					{ LANG_JP, "JP" },
+					{ LANG_RU, "RU" },
 					{ -1, 0 }
 				};
 				int i = 0;
@@ -284,34 +282,13 @@ int main(int argc, char *argv[]) {
 		case 9:
 			cheats = atoi(optarg);
 			break;
-		case 10: {
-				static const struct {
-					int mode;
-					const char *str;
-				} drivers[] = {
-					{ MODE_ADLIB, "adlib" },
-					{ MODE_MT32, "mt32" },
-					{ -1, 0 }
-				};
-				int i = 0;
-				for (; drivers[i].str; ++i) {
-					if (strcasecmp(drivers[i].str, optarg) == 0) {
-						midiDriver = drivers[i].mode;
-						break;
-					}
-				}
-				if (!drivers[i].str) {
-					warning("Invalid MIDI driver '%s'", optarg);
-				}
-			}
-			break;
 		default:
 			printf(USAGE, argv[0]);
 			return 0;
 		}
 	}
-	initOptions();
-	g_debugMask = DBG_INFO; // DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL | DBG_MOD | DBG_SFX | DBG_FILE;
+	initOptions(argv[0]);
+	g_debugMask = DBG_INFO | DBG_SFX | DBG_RES; // DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL | DBG_MOD | DBG_SFX | DBG_FILE;
 	FileSystem fs(dataPath);
 	const int version = detectVersion(&fs);
 	if (version == -1) {
@@ -320,7 +297,7 @@ int main(int argc, char *argv[]) {
 	}
 	const Language language = (forcedLanguage == -1) ? detectLanguage(&fs) : (Language)forcedLanguage;
 	SystemStub *stub = SystemStub_SDL_create();
-	Game *g = new Game(stub, &fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, midiDriver, cheats);
+	Game *g = new Game(stub, &fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, cheats);
 	stub->init(g_caption, g->_vid._w, g->_vid._h, fullscreen, widescreen, &scalerParameters);
 	g->run();
 	delete g;

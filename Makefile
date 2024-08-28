@@ -8,13 +8,14 @@ ZLIB_LIBS    := -lz
 
 LIBS = $(SDL_LIBS) $(MODPLUG_LIBS) $(TREMOR_LIBS) $(ZLIB_LIBS)
 
-CXXFLAGS += -Wall -Wextra -Wno-unused-parameter -Wpedantic -MMD $(SDL_CFLAGS) -DUSE_MODPLUG -DUSE_STB_VORBIS -DUSE_ZLIB
+CXX=g++
+CXXFLAGS += -std=c++17 -Wall -Wextra -Wno-unused-parameter -Wpedantic -Woverlength-strings -MMD $(SDL_CFLAGS) -DUSE_MODPLUG -DUSE_STB_VORBIS -DUSE_ZLIB
 
 SRCS = collision.cpp cpc_player.cpp cutscene.cpp decode_mac.cpp file.cpp fs.cpp game.cpp graphics.cpp main.cpp \
-	menu.cpp midi_parser.cpp mixer.cpp mod_player.cpp ogg_player.cpp \
-	piege.cpp prf_player.cpp protection.cpp resource.cpp resource_aba.cpp \
+	menu.cpp mixer.cpp mod_player.cpp ogg_player.cpp \
+	piege.cpp protection.cpp resource.cpp resource_aba.cpp \
 	resource_mac.cpp resource_paq.cpp scaler.cpp screenshot.cpp seq_player.cpp \
-	sfx_player.cpp staticres.cpp systemstub_sdl.cpp unpack.cpp util.cpp video.cpp
+	sfx_player.cpp staticres.cpp staticres_controllers.cpp systemstub_sdl.cpp unpack.cpp util.cpp video.cpp
 
 #CXXFLAGS += -DUSE_STATIC_SCALER
 #SCALERS  := scalers/scaler_nearest.cpp scalers/scaler_tv2x.cpp scalers/scaler_xbr.cpp

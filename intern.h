@@ -92,6 +92,7 @@ enum Language {
 	LANG_SP,
 	LANG_IT,
 	LANG_JP,
+	LANG_RU,
 };
 
 enum ResourceType {
@@ -110,6 +111,7 @@ enum Skill {
 enum WidescreenMode {
 	kWidescreenNone,
 	kWidescreenAdjacentRooms,
+	kWidescreenAdjacentRoomsBlur,
 	kWidescreenMirrorRoom,
 	kWidescreenBlur,
 	kWidescreenCDi,
@@ -130,7 +132,6 @@ struct Options {
 	bool use_seq_cutscenes;
 	bool use_words_protection;
 	bool use_white_tshirt;
-	bool use_prf_music;
 	bool play_asc_cutscene;
 	bool play_caillou_cutscene;
 	bool play_metro_cutscene;

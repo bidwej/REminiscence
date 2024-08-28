@@ -46,12 +46,14 @@ struct LocaleData {
 	};
 
 	static const char *_textsTableFR[];
+	static const char *_textsTableRU[];
 	static const char *_textsTableEN[];
 	static const char *_textsTableDE[];
 	static const char *_textsTableSP[];
 	static const char *_textsTableIT[];
 
 	static const uint8_t _stringsTableFR[];
+	static const uint8_t _stringsTableRU[];
 	static const uint8_t _stringsTableEN[];
 	static const uint8_t _stringsTableDE[];
 	static const uint8_t _stringsTableSP[];
@@ -122,6 +124,7 @@ struct Resource {
 	static const char *_splNames[];
 	static const uint8_t _gameSavedSoundData[];
 	static const uint16_t _gameSavedSoundLen;
+	static const char *_controllerMapping;
 
 	FileSystem *_fs;
 	ResourceType _type;
