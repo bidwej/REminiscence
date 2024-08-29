@@ -1031,14 +1031,6 @@ void SystemStub_SDL::prepareGraphics() {
 	} else {
 		flags |= SDL_WINDOW_RESIZABLE;
 	}
-	if (0 /* && _widescreenMode == kWidescreenDefault */) {
-		SDL_DisplayMode dm;
-		if (SDL_GetDesktopDisplayMode(0, &dm) == 0 && is16_9(&dm)) {
-			_widescreenMode = kWidescreenBlur; // default widescreen mode
-		} else {
-			_widescreenMode = kWidescreenNone;
-                }
-	}
 	if (_widescreenMode == kWidescreenCDi) {
 		windowW = (_screenW + kWidescreenBorderCDiW * 2) * _scaleFactor;
 	} else if (_widescreenMode != kWidescreenNone) {
@@ -1136,12 +1128,12 @@ void SystemStub_SDL::setScaler(const ScalerParameters *parameters) {
 		snprintf(libname, sizeof(libname), "./scaler_%s.%s", parameters->name, libSuffix);
 		_scalerSo = SDL_LoadObject(libname);
 		if (!_scalerSo) {
-			warning("Scaler '%s' not found, using default", libname);
+			warning("Scaler '%s' not found: %s\nUsing default scaler", libname, SDL_GetError());
 		} else {
 			static const char *kSoSym = "getScaler";
 			void *symbol = SDL_LoadFunction(_scalerSo, kSoSym);
 			if (!symbol) {
-				warning("Symbol '%s' not found in '%s'", kSoSym, libname);
+				warning("Symbol '%s' not found in '%s': %s", kSoSym, libname, SDL_GetError());
 			} else {
 				typedef const Scaler *(*GetScalerProc)();
 				const Scaler *scaler = ((GetScalerProc)symbol)();
