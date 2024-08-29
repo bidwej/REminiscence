@@ -1133,7 +1133,7 @@ void SystemStub_SDL::setScaler(const ScalerParameters *parameters) {
 		static const char *libSuffix = "so";
 #endif
 		char libname[64];
-		snprintf(libname, sizeof(libname), "scaler_%s.%s", parameters->name, libSuffix);
+		snprintf(libname, sizeof(libname), "./scaler_%s.%s", parameters->name, libSuffix);
 		_scalerSo = SDL_LoadObject(libname);
 		if (!_scalerSo) {
 			warning("Scaler '%s' not found, using default", libname);

@@ -1086,7 +1086,11 @@ void Cutscene::mainLoop(uint16_t num) {
 	_baseOffset = (count + 1) * 2;
 
 	_varKey = 0;
-	_cmdPtr = _cmdPtrBak = p + _baseOffset + offset;
+	if (num != 0 && _res->isMac()) {
+		_cmdPtr = _cmdPtrBak = p + offset;
+	} else {
+		_cmdPtr = _cmdPtrBak = p + _baseOffset + offset;
+	}
 	_polPtr = getPolygonData();
 	debug(DBG_CUT, "_baseOffset = %d offset = %d count = %d", _baseOffset, offset, count);
 
