@@ -19,13 +19,13 @@ static const char *USAGE =
 	"REminiscence - Flashback Interpreter\n"
 	"Usage: %s [OPTIONS]...\n"
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
-	"  --savepath=PATH   Path to save files (default '.')\n"
+	"  --savepath=PATH   Path to save files (default 'SAVE')\n"
 	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
 	"  --window          Play in window\n"
-	"  --widescreen=MODE 16:9 display (adjacent,adjacent-blur,mirror,blur,none)\n"
+	"  --widescreen=MODE 16:9 display (adjacent, adjacent-blur, mirror, blur, none)\n"
 	"  --scaler=NAME@X   Graphics scaler (default 'scale@3')\n"
-	"  --language=LANG   Language (fr,en,de,sp,it,jp,ru)\n"
+	"  --language=LANG   Language (fr, en, de, sp, it, jp, ru)\n"
 	"  --autosave        Save game state automatically\n"
 ;
 
