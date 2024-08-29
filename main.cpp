@@ -16,11 +16,11 @@
 #include "util.h"
 
 static const char *USAGE =
-	"REminiscence - Flashback Interpreter\n"
+	"Flashback: The Quest for Identity\n"
 	"Usage: %s [OPTIONS]...\n"
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
 	"  --savepath=PATH   Path to save files (default 'SAVE')\n"
-	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')"
+	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')\n"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
 	"  --window          Play in window\n"
 	"  --widescreen=MODE 16:9 display (adjacent, adjacent-blur, mirror, blur, none)\n"
