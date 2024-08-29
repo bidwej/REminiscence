@@ -44,7 +44,7 @@ These paths can be changed using command line switches :
         --tunepath=PATH   Path to sound and music files (default 'TUNES')
         --levelnum=NUM    Start to level, bypass introduction
         --window          Play in window
-        --widescreen=MODE 16:9 display (adjacent,mirror,blur,none)
+        --widescreen=MODE 16:9 display (adjacent,adjacent-blur,mirror,blur,none)
         --scaler=NAME@X   Graphics scaler (default 'scale@3')
         --language=LANG   Language (fr,en,de,sp,it,jp,ru)
         --autosave        Save game state automatically

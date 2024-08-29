@@ -11,7 +11,7 @@
 #include "file.h"
 #include "fs.h"
 #include "game.h"
-#include "scaler.h"
+#include "intern.h"
 #include "systemstub.h"
 #include "util.h"
 
@@ -23,9 +23,9 @@ static const char *USAGE =
 	"  --tunepath=PATH   Path to sound and music files (default 'TUNES')\n"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
 	"  --window          Play in window\n"
-	"  --widescreen=MODE 16:9 display (adjacent,mirror,blur,none)\n"
+	"  --widescreen=MODE 16:9 display (adjacent, adjacent-blur, mirror, blur, none)\n"
 	"  --scaler=NAME@X   Graphics scaler (default 'scale@3')\n"
-	"  --language=LANG   Language (fr,en,de,sp,it,jp,ru)\n"
+	"  --language=LANG   Language (fr, en, de, sp, it, jp, ru)\n"
 	"  --autosave        Save game state automatically\n"
 ;
 
@@ -36,6 +36,7 @@ static int detectVersion(FileSystem *fs) {
 		const char *name;
 	} table[] = {
 		{ "DEMO_UK.ABA", kResourceTypeDOS, "DOS (Demo)" },
+		{ "GLOB_FR.ABA", kResourceTypeDOS, "DOS" },
 		{ "INTRO.SEQ", kResourceTypeDOS, "DOS CD" },
 		{ "MENU1SSI.MAP", kResourceTypeDOS, "DOS SSI" },
 		{ "LEVEL1.MAP", kResourceTypeDOS, "DOS" },
@@ -44,6 +45,7 @@ static int detectVersion(FileSystem *fs) {
 		{ "DEMO.LEV", kResourceTypeAmiga, "Amiga (Demo)" },
 		{ "FLASHBACK.BIN", kResourceTypeMac, "Macintosh" },
 		{ "FLASHBACK.RSRC", kResourceTypeMac, "Macintosh" },
+		{ "GLOBAL.PAQ", kResourceTypePC98, "PC98" },
 		{ 0, -1, 0 }
 	};
 	for (int i = 0; table[i].filename; ++i) {
@@ -61,7 +63,8 @@ static Language detectLanguage(FileSystem *fs) {
 		const char *filename;
 		Language language;
 	} table[] = {
-		// PC
+		// DOS
+		{ "GLOB_FR.ABA", LANG_FR },
 		{ "ENGCINE.TXT", LANG_EN },
 		{ "FR_CINE.TXT", LANG_FR },
 		{ "RUSCINE.TXT", LANG_RU },
@@ -83,9 +86,9 @@ static Language detectLanguage(FileSystem *fs) {
 }
 
 Options g_options;
-const char *g_caption = "Flashback";
+const char *g_caption = "REminiscence";
 
-static void initOptions() {
+static void initOptions(char *config_file) {
 	// defaults
 	g_options.bypass_protection = true;
 	g_options.enable_password_menu = true;
@@ -94,14 +97,16 @@ static void initOptions() {
 	g_options.use_text_cutscenes = false;
 	g_options.use_seq_cutscenes = true;
 	g_options.use_words_protection = false;
-	g_options.use_white_tshirt = true; 
-	g_options.use_wrike_tshirt = false;
-	g_options.play_asc_cutscene = true;
-	g_options.play_caillou_cutscene = true;
-	g_options.play_metro_cutscene = true;
-	g_options.play_serrure_cutscene = true;
-	g_options.play_carte_cutscene = true;
+	g_options.use_white_tshirt = false;
+	g_options.play_asc_cutscene = false;
+	g_options.play_caillou_cutscene = false;
+	g_options.play_metro_cutscene = false;
+	g_options.play_serrure_cutscene = false;
+	g_options.play_carte_cutscene = false;
 	g_options.play_gamesaved_sound = false;
+	g_options.restore_memo_cutscene = true;
+	g_options.order_inventory_original = false;
+	g_options.fix_fmopl_e0_reg = false;
 	// read configuration file
 	struct {
 		const char *name;
@@ -122,9 +127,14 @@ static void initOptions() {
 		{ "play_serrure_cutscene", &g_options.play_serrure_cutscene },
 		{ "play_carte_cutscene", &g_options.play_carte_cutscene },
 		{ "play_gamesaved_sound", &g_options.play_gamesaved_sound },
+		{ "restore_memo_cutscene", &g_options.restore_memo_cutscene },
+		{ "order_inventory_original", &g_options.order_inventory_original },
+		{ "fix_fmopl_e0_reg", &g_options.fix_fmopl_e0_reg },
 		{ 0, 0 }
 	};
-	FILE *fp = fopen("fb.cfg", "rb");
+	char filename[16];
+	snprintf(filename, sizeof(filename), "%s.cfg", config_file);
+	FILE *fp = fopen(filename, "rb");
 	if (fp) {
 		char buf[256];
 		while (fgets(buf, sizeof(buf), fp)) {
@@ -176,6 +186,7 @@ static WidescreenMode parseWidescreen(const char *mode) {
 		{ "adjacent-blur", kWidescreenAdjacentRoomsBlur },
 		{ "mirror", kWidescreenMirrorRoom },
 		{ "blur", kWidescreenBlur },
+		{ "cdi", kWidescreenCDi },
 		{ 0, kWidescreenNone },
 	};
 	for (int i = 0; modes[i].name; ++i) {
@@ -187,14 +198,23 @@ static WidescreenMode parseWidescreen(const char *mode) {
 	return kWidescreenBlur;
 }
 
+static bool makeDir(const char *name) {
+	struct stat st = {0};
+	if (stat(name, &st) == -1) {
+		return mkdir(name, 0700) == 0;
+	} else {
+		return true;
+	}
+}
+
 int main(int argc, char *argv[]) {
 	const char *dataPath = "DATA";
-	const char *savePath = "SAVE";
 	const char *tunePath = "TUNES";
+	const char *savePath = "SAVE";
 	int levelNum = 0;
 	bool fullscreen = true;
 	bool autoSave = false;
-	bool useWrikeTShirt = false;
+	uint32_t cheats = 0;
 	WidescreenMode widescreen = kWidescreenNone;
 	ScalerParameters scalerParameters = ScalerParameters::defaults();
 	int forcedLanguage = -1;
@@ -202,21 +222,21 @@ int main(int argc, char *argv[]) {
 		// data path as the only command line argument
 		struct stat st;
 		if (stat(argv[1], &st) == 0 && S_ISDIR(st.st_mode)) {
-			dataPath = strdup(argv[1]);
+			dataPath = tunePath = savePath = strdup(argv[1]);
 		}
 	}
 	while (1) {
 		static struct option options[] = {
-			{ "datapath",   required_argument, 0, 1  },
-			{ "savepath",   required_argument, 0, 2  },
-			{ "tunepath",   required_argument, 0, 3  },
-			{ "levelnum",   required_argument, 0, 4  },
-			{ "window",	    no_argument,       0, 5  },
-			{ "scaler",     required_argument, 0, 6  },
-			{ "language",   required_argument, 0, 7  },
-			{ "widescreen", required_argument, 0, 8  },
-			{ "autosave",   no_argument,       0, 9  },
-			{ "wrike",      no_argument,       0, 10 },
+			{ "datapath",   required_argument, 0, 1 },
+			{ "savepath",   required_argument, 0, 2 },
+			{ "tunepath",   required_argument, 0, 3 },
+			{ "levelnum",   required_argument, 0, 4 },
+			{ "window",     no_argument,       0, 5 },
+			{ "scaler",     required_argument, 0, 6 },
+			{ "language",   required_argument, 0, 7 },
+			{ "widescreen", required_argument, 0, 8 },
+			{ "autosave",   no_argument,       0, 9 },
+			{ "cheats",     required_argument, 0, 10 },
 			{ 0, 0, 0, 0 }
 		};
 		int index;
@@ -257,11 +277,15 @@ int main(int argc, char *argv[]) {
 					{ LANG_RU, "RU" },
 					{ -1, 0 }
 				};
-				for (int i = 0; languages[i].str; ++i) {
+				int i = 0;
+				for (; languages[i].str; ++i) {
 					if (strcasecmp(languages[i].str, optarg) == 0) {
 						forcedLanguage = languages[i].lang;
 						break;
 					}
+				}
+				if (!languages[i].str) {
+					warning("Invalid language '%s'", optarg);
 				}
 			}
 			break;
@@ -272,28 +296,29 @@ int main(int argc, char *argv[]) {
 			autoSave = true;
 			break;
 		case 10:
-			useWrikeTShirt = true;
+			cheats = atoi(optarg);
 			break;
 		default:
 			printf(USAGE, argv[0]);
 			return 0;
 		}
 	}
-	initOptions();
-	if (useWrikeTShirt) {
-		g_options.use_wrike_tshirt = true;
-	}
-	g_debugMask = DBG_INFO; // | DBG_MOD | DBG_SFX | DBG_SND | DBG_FILE | DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL
+	initOptions(argv[0]);
+	g_debugMask = DBG_INFO; // DBG_CUT | DBG_VIDEO | DBG_RES | DBG_MENU | DBG_PGE | DBG_GAME | DBG_UNPACK | DBG_COL | DBG_MOD | DBG_SFX | DBG_FILE;
 	FileSystem fs(dataPath);
-	FileSystem tune_fs(tunePath);
 	const int version = detectVersion(&fs);
 	if (version == -1) {
 		error("Unable to find data files, check that all required files are present");
 		return -1;
 	}
+	if (!makeDir(tunePath) || !makeDir(savePath)) {
+		error("Unable to create directories");
+		return -1;
+	}
+	FileSystem tuneFs(tunePath);
 	const Language language = (forcedLanguage == -1) ? detectLanguage(&fs) : (Language)forcedLanguage;
 	SystemStub *stub = SystemStub_SDL_create();
-	Game *g = new Game(stub, &fs, &tune_fs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave);
+	Game *g = new Game(stub, &fs, &tuneFs, savePath, levelNum, (ResourceType)version, language, widescreen, autoSave, cheats);
 	stub->init(g_caption, g->_vid._w, g->_vid._h, fullscreen, widescreen, &scalerParameters);
 	g->run();
 	delete g;

@@ -74,8 +74,9 @@ void Menu::drawString2(const char *str, int16_t y, int16_t x) {
 		}
 		break;
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		for (; str[len]; ++len) {
-			_vid->PC_drawChar((uint8_t)str[len], y, x + len, true);
+			_vid->DOS_drawChar((uint8_t)str[len], y, x + len, true);
 		}
 		break;
 	case kResourceTypeMac:
@@ -91,11 +92,15 @@ void Menu::loadPicture(const char *prefix) {
 	debug(DBG_MENU, "Menu::loadPicture('%s')", prefix);
 	static const int kPictureW = 256;
 	static const int kPictureH = 224;
-	_res->load_MAP_menu(prefix, _res->_scratchBuffer);
-	for (int i = 0; i < 4; ++i) {
-		for (int y = 0; y < kPictureH; ++y) {
-			for (int x = 0; x < kPictureW / 4; ++x) {
-				_vid->_frontLayer[i + x * 4 + kPictureW * y] = _res->_scratchBuffer[0x3800 * i + x + 64 * y];
+	if (_res->isPC98()) {
+		_res->load_MAP_menu(prefix, _vid->_frontLayer);
+	} else {
+		_res->load_MAP_menu(prefix, _res->_scratchBuffer);
+		for (int i = 0; i < 4; ++i) {
+			for (int y = 0; y < kPictureH; ++y) {
+				for (int x = 0; x < kPictureW / 4; ++x) {
+					_vid->_frontLayer[i + x * 4 + kPictureW * y] = _res->_scratchBuffer[0x3800 * i + x + 64 * y];
+				}
 			}
 		}
 	}
@@ -200,9 +205,9 @@ bool Menu::handlePasswordScreen() {
 		drawString2(_res->getMenuString(LocaleData::LI_17_ENTER_PASSWORD2), 17, 3);
 
 		for (int i = 0; i < len; ++i) {
-			_vid->PC_drawChar((uint8_t)password[i], 21, i + 15);
+			_vid->DOS_drawChar((uint8_t)password[i], 21, i + 15);
 		}
-		_vid->PC_drawChar(0x20, 21, len + 15);
+		_vid->DOS_drawChar(0x20, 21, len + 15);
 
 		_vid->markBlockAsDirty(15 * Video::CHAR_W, 21 * Video::CHAR_H, (len + 1) * Video::CHAR_W, Video::CHAR_H, _vid->_layerScale);
 		_vid->updateScreen();
@@ -259,9 +264,9 @@ bool Menu::handleLevelScreen() {
 		}
 		_vid->markBlockAsDirty(4 * Video::CHAR_W, 7 * Video::CHAR_H, 192, 7 * Video::CHAR_H, _vid->_layerScale);
 
-                drawString(_res->getMenuString(LocaleData::LI_13_EASY),   23,  4, (currentSkill == 0) ? 2 : 3);
-                drawString(_res->getMenuString(LocaleData::LI_14_NORMAL), 23, 14, (currentSkill == 1) ? 2 : 3);
-                drawString(_res->getMenuString(LocaleData::LI_15_EXPERT), 23, 24, (currentSkill == 2) ? 2 : 3);
+		drawString(_res->getMenuString(LocaleData::LI_13_EASY),   23,  4, (currentSkill == 0) ? 2 : 3);
+		drawString(_res->getMenuString(LocaleData::LI_14_NORMAL), 23, 14, (currentSkill == 1) ? 2 : 3);
+		drawString(_res->getMenuString(LocaleData::LI_15_EXPERT), 23, 24, (currentSkill == 2) ? 2 : 3);
 		_vid->markBlockAsDirty(4 * Video::CHAR_W, 23 * Video::CHAR_H, 192, Video::CHAR_H, _vid->_layerScale);
 
 		_vid->updateScreen();
@@ -361,10 +366,8 @@ void Menu::handleTitleScreen() {
 	++menuItemsCount;
 
 	_selectedOption = -1;
-	_currentScreen = -1;
 	_nextScreen = SCREEN_TITLE;
 
-	bool quitLoop = false;
 	int currentEntry = 0;
 
 	static const struct {
@@ -373,7 +376,6 @@ void Menu::handleTitleScreen() {
 	} languages[] = {
 		{ LANG_EN, _flagEn16x12 },
 		{ LANG_FR, _flagFr16x12 },
-		{ LANG_RU, _flagRu16x12 },
 		{ LANG_DE, _flagDe16x12 },
 		{ LANG_SP, _flagSp16x12 },
 		{ LANG_IT, _flagIt16x12 },
@@ -387,7 +389,7 @@ void Menu::handleTitleScreen() {
 		}
 	}
 
-	while (!quitLoop && !_stub->_pi.quit) {
+	while (!_stub->_pi.quit) {
 
 		int selectedItem = -1;
 		int previousLanguage = currentLanguage;
@@ -399,7 +401,6 @@ void Menu::handleTitleScreen() {
 			_charVar3 = 1;
 			_charVar4 = 2;
 			currentEntry = 0;
-			_currentScreen = _nextScreen;
 			_nextScreen = -1;
 		}
 
@@ -445,30 +446,27 @@ void Menu::handleTitleScreen() {
 			_selectedOption = menuItems[selectedItem].opt;
 			switch (_selectedOption) {
 			case MENU_OPTION_ITEM_START:
-				quitLoop = true;
-				break;
+				return;
 			case MENU_OPTION_ITEM_SKILL:
-				_currentScreen = SCREEN_SKILL;
 				handleSkillScreen();
 				break;
 			case MENU_OPTION_ITEM_PASSWORD:
-				_currentScreen = SCREEN_PASSWORD;
-				quitLoop = handlePasswordScreen();
+				if (handlePasswordScreen()) {
+					return;
+				}
 				break;
 			case MENU_OPTION_ITEM_LEVEL:
-				_currentScreen = SCREEN_LEVEL;
-				quitLoop = handleLevelScreen();
+				if (handleLevelScreen()) {
+					return;
+				}
 				break;
 			case MENU_OPTION_ITEM_INFO:
-				_currentScreen = SCREEN_INFO;
 				handleInfoScreen();
 				break;
 			case MENU_OPTION_ITEM_DEMO:
-				quitLoop = true;
-				break;
+				return;
 			case MENU_OPTION_ITEM_QUIT:
-				quitLoop = true;
-				break;
+				return;
 			}
 			_nextScreen = SCREEN_TITLE;
 			continue;
@@ -501,14 +499,6 @@ void Menu::handleTitleScreen() {
 	}
 }
 
-const char *Menu::getLevelName(int level) const {
-	if (_res->_lang == LANG_RU) {
-		return _levelNamesRu[level];
-	} else {
-		return _levelNames[level];
-	}
-}
-
 const char *Menu::getLevelPassword(int level, int skill) const {
 	switch (_res->_type) {
 	case kResourceTypeAmiga:
@@ -523,8 +513,17 @@ const char *Menu::getLevelPassword(int level, int skill) const {
 	case kResourceTypeMac:
 		return _passwordsMac[skill * 8 + level];
 	case kResourceTypeDOS:
+	case kResourceTypePC98:
 		// default
 		break;
 	}
 	return _passwordsDOS[skill * 8 + level];
+}
+
+const char *Menu::getLevelName(int level) const {
+	if (_res->_lang == LANG_RU) {
+		return _levelNamesRu[level];
+	} else {
+		return _levelNames[level];
+	}
 }

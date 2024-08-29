@@ -33,7 +33,8 @@ Video::Video(Resource *res, SystemStub *stub, WidescreenMode widescreenMode)
 		_drawChar = &Video::AMIGA_drawStringChar;
 		break;
 	case kResourceTypeDOS:
-		_drawChar = &Video::PC_drawStringChar;
+	case kResourceTypePC98:
+		_drawChar = &Video::DOS_drawStringChar;
 		break;
 	case kResourceTypeMac:
 		_drawChar = &Video::MAC_drawStringChar;
@@ -121,6 +122,7 @@ void Video::updateWidescreen() {
 			_stub->copyWidescreenMirror(_w, _h, _backLayer);
 		} else if (_widescreenMode == kWidescreenBlur) {
 			_stub->copyWidescreenBlur(_w, _h, _backLayer);
+		} else if (_widescreenMode == kWidescreenCDi) {
 		} else {
 			_stub->clearWidescreen();
 		}
@@ -135,7 +137,7 @@ void Video::fullRefresh() {
 
 void Video::fadeOut() {
 	debug(DBG_VIDEO, "Video::fadeOut()");
-	if (g_options.fade_out_palette) {
+	if (g_options.fade_out_palette && !_stub->hasWidescreen()) {
 		fadeOutPalette();
 	} else {
 		_stub->fadeScreen();
@@ -181,15 +183,9 @@ void Video::setPaletteSlotLE(int palSlot, const uint8_t *palData) {
 		Color c = AMIGA_convertColor(color);
 		_stub->setPaletteEntry(palSlot * 16 + i, &c);
 	}
-	if (palSlot == 4 && (g_options.use_white_tshirt || g_options.use_wrike_tshirt)) {
-		Color color12, color13;
-		if (g_options.use_wrike_tshirt) {
-			color12 = AMIGA_convertColor(0x373);
-			color13 = AMIGA_convertColor((palData == _conradPal2) ? 0x373 : 0x5A5);
-		} else {
-			color12 = AMIGA_convertColor(0x888);
-			color13 = AMIGA_convertColor((palData == _conradPal2) ? 0x888 : 0xCCC);
-		}
+	if (palSlot == 4 && g_options.use_white_tshirt) {
+		const Color color12 = AMIGA_convertColor(0x888);
+		const Color color13 = AMIGA_convertColor((palData == _conradPal2) ? 0x888 : 0xCCC);
 		_stub->setPaletteEntry(palSlot * 16 + 12, &color12);
 		_stub->setPaletteEntry(palSlot * 16 + 13, &color13);
 	}
@@ -218,7 +214,7 @@ void Video::setPalette0xF() {
 	}
 }
 
-void Video::PC_decodeLev(int level, int room) {
+void Video::DOS_decodeLev(int level, int room) {
 	uint8_t *tmp = _res->_mbk;
 	_res->_mbk = _res->_bnq;
 	_res->clearBankData();
@@ -227,7 +223,7 @@ void Video::PC_decodeLev(int level, int room) {
 	_res->clearBankData();
 }
 
-static void PC_decodeMapPlane(int sz, const uint8_t *src, uint8_t *dst) {
+static void DOS_decodeMapPlane(int sz, const uint8_t *src, uint8_t *dst) {
 	const uint8_t *end = src + sz;
 	while (src < end) {
 		int16_t code = (int8_t)*src++;
@@ -244,11 +240,11 @@ static void PC_decodeMapPlane(int sz, const uint8_t *src, uint8_t *dst) {
 	}
 }
 
-void Video::PC_decodeMap(int level, int room) {
-	debug(DBG_VIDEO, "Video::PC_decodeMap(%d)", room);
+void Video::DOS_decodeMap(int level, int room) {
+	debug(DBG_VIDEO, "Video::DOS_decodeMap(%d)", room);
 	if (!_res->_map) {
 		assert(_res->_lev);
-		PC_decodeLev(level, room);
+		DOS_decodeLev(level, room);
 		return;
 	}
 	assert(room < 0x40);
@@ -275,7 +271,7 @@ void Video::PC_decodeMap(int level, int room) {
 	if (packed) {
 		for (int i = 0; i < 4; ++i) {
 			const int sz = READ_LE_UINT16(p); p += 2;
-			PC_decodeMapPlane(sz, p, _res->_scratchBuffer); p += sz;
+			DOS_decodeMapPlane(sz, p, _res->_scratchBuffer); p += sz;
 			memcpy(_frontLayer + i * kPlaneSize, _res->_scratchBuffer, kPlaneSize);
 		}
 	} else {
@@ -287,12 +283,17 @@ void Video::PC_decodeMap(int level, int room) {
 			}
 		}
 	}
+	if (_res->isPC98()) {
+		for (int i = 0; i < 256 * 224; ++i) {
+			_frontLayer[i] &= 15;
+		}
+	}
 	memcpy(_backLayer, _frontLayer, _layerSize);
-	PC_setLevelPalettes();
+	DOS_setLevelPalettes();
 }
 
-void Video::PC_setLevelPalettes() {
-	debug(DBG_VIDEO, "Video::PC_setLevelPalettes()");
+void Video::DOS_setLevelPalettes() {
+	debug(DBG_VIDEO, "Video::DOS_setLevelPalettes()");
 	if (_unkPalSlot2 == 0) {
 		_unkPalSlot2 = _mapPalSlot3;
 	}
@@ -322,7 +323,7 @@ void Video::PC_setLevelPalettes() {
 	setTextPalette();
 }
 
-void Video::PC_decodeIcn(const uint8_t *src, int num, uint8_t *dst) {
+void Video::DOS_decodeIcn(const uint8_t *src, int num, uint8_t *dst) {
 	const int offset = READ_LE_UINT16(src + num * 2);
 	const uint8_t *p = src + offset + 2;
 	for (int i = 0; i < 16 * 16 / 2; ++i) {
@@ -331,7 +332,7 @@ void Video::PC_decodeIcn(const uint8_t *src, int num, uint8_t *dst) {
 	}
 }
 
-void Video::PC_decodeSpc(const uint8_t *src, int w, int h, uint8_t *dst) {
+void Video::DOS_decodeSpc(const uint8_t *src, int w, int h, uint8_t *dst) {
 	const int size = w * h / 2;
 	for (int i = 0; i < size; ++i) {
 		*dst++ = src[i] >> 4;
@@ -339,7 +340,7 @@ void Video::PC_decodeSpc(const uint8_t *src, int w, int h, uint8_t *dst) {
 	}
 }
 
-void Video::PC_decodeSpm(const uint8_t *dataPtr, uint8_t *dst) {
+void Video::DOS_decodeSpm(const uint8_t *dataPtr, uint8_t *dst) {
 	const int len = 2 * READ_BE_UINT16(dataPtr); dataPtr += 2;
 	uint8_t *dst2 = dst + 1024;
 	for (int i = 0; i < len; ++i) {
@@ -481,7 +482,7 @@ static void AMIGA_decodeRle(uint8_t *dst, const uint8_t *src) {
 	}
 }
 
-static void PC_drawTileMask(uint8_t *dst, int x0, int y0, int w, int h, uint8_t *m, uint8_t *p, int size) {
+static void DOS_drawTileMask(uint8_t *dst, int x0, int y0, int w, int h, uint8_t *m, uint8_t *p, int size) {
 	assert(size == (w * 2 * h));
 	for (int y = 0; y < h; ++y) {
 		for (int x = 0; x < w; ++x) {
@@ -504,14 +505,14 @@ static void PC_drawTileMask(uint8_t *dst, int x0, int y0, int w, int h, uint8_t 
 	}
 }
 
-static void decodeSgd(uint8_t *dst, const uint8_t *src, const uint8_t *data, const bool isAmiga) {
+static void decodeSgd(uint8_t *dst, const uint8_t *src, const uint8_t *data, const bool isAmiga, int level, int room) {
 	int num = -1;
 	uint8_t buf[256 * 32];
 	int count = READ_BE_UINT16(src) - 1; src += 2;
 	do {
 		int d2 = READ_BE_UINT16(src); src += 2;
-		const int d0 = (int16_t)READ_BE_UINT16(src); src += 2;
-		const int d1 = (int16_t)READ_BE_UINT16(src); src += 2;
+		int x_pos = (int16_t)READ_BE_UINT16(src); src += 2;
+		int y_pos = (int16_t)READ_BE_UINT16(src); src += 2;
 		if (d2 != 0xFFFF) {
 			d2 &= ~(1 << 15);
 			const int32_t offset = READ_BE_UINT32(data + d2 * 4);
@@ -532,13 +533,16 @@ static void decodeSgd(uint8_t *dst, const uint8_t *src, const uint8_t *data, con
 				}
 			}
 		}
+		if (level == 0 && room == 26 && d2 == 38 && y_pos == 176) {
+			y_pos += 8;
+		}
 		const int w = (buf[0] + 1) >> 1;
 		const int h = buf[1] + 1;
 		const int planarSize = READ_BE_UINT16(buf + 2);
 		if (isAmiga) {
-			AMIGA_planar_mask(dst, d0, d1, w, h, buf + 4, buf + 4 + planarSize, planarSize);
+			AMIGA_planar_mask(dst, x_pos, y_pos, w, h, buf + 4, buf + 4 + planarSize, planarSize);
 		} else {
-			PC_drawTileMask(dst, d0, d1, w, h, buf + 4, buf + 4 + planarSize, planarSize);
+			DOS_drawTileMask(dst, x_pos, y_pos, w, h, buf + 4, buf + 4 + planarSize, planarSize);
 		}
 	} while (--count >= 0);
 }
@@ -596,7 +600,7 @@ static void AMIGA_drawTile(uint8_t *dst, int pitch, const uint8_t *src, int pal,
 	}
 }
 
-static void PC_drawTile(uint8_t *dst, const uint8_t *src, int mask, const bool xflip, const bool yflip, int colorKey) {
+static void DOS_drawTile(uint8_t *dst, const uint8_t *src, int mask, const bool xflip, const bool yflip, int colorKey) {
 	int pitch = Video::GAMESCREEN_W;
 	if (yflip) {
 		dst += 7 * pitch;
@@ -639,7 +643,7 @@ static void decodeLevHelper(uint8_t *dst, const uint8_t *src, int offset10, int 
 						mask = 0x80 + ((d3 >> 6) & 0x10);
 					}
 					if (isPC) {
-						PC_drawTile(dst + y * 256 + x, a2, mask, xflip, yflip, -1);
+						DOS_drawTile(dst + y * 256 + x, a2, mask, xflip, yflip, -1);
 					} else {
 						AMIGA_drawTile(dst + y * 256 + x, 256, a2, mask, xflip, yflip, -1);
 					}
@@ -654,7 +658,7 @@ static void decodeLevHelper(uint8_t *dst, const uint8_t *src, int offset10, int 
 				const int d3 = isPC ? READ_LE_UINT16(a0) : READ_BE_UINT16(a0); a0 += 2;
 				int d0 = d3 & 0x7FF;
 				if (d0 != 0 && sgdBuf) {
-					d0 -= 896;
+					d0 -= 0x380;
 				}
 				if (d0 != 0) {
 					const uint8_t *a2 = a5 + d0 * 32;
@@ -665,9 +669,12 @@ static void decodeLevHelper(uint8_t *dst, const uint8_t *src, int offset10, int 
 						mask = 0x10;
 					} else if ((d3 & 0x8000) != 0) {
 						mask = 0x80 + ((d3 >> 6) & 0x10);
+						if (d3 & 0x4000) {
+							mask = 0x90;
+						}
 					}
 					if (isPC) {
-						PC_drawTile(dst + y * 256 + x, a2, mask, xflip, yflip, 0);
+						DOS_drawTile(dst + y * 256 + x, a2, mask, xflip, yflip, 0);
 					} else {
 						AMIGA_drawTile(dst + y * 256 + x, 256, a2, mask, xflip, yflip, 0);
 					}
@@ -675,6 +682,30 @@ static void decodeLevHelper(uint8_t *dst, const uint8_t *src, int offset10, int 
 			}
 		}
 	}
+}
+
+void Video::PC98_decodeMap(int level, int room) {
+	const uint16_t size = READ_LE_UINT16(_res->_map + room * 6 + 4);
+	if (size == 0) {
+		return;
+	}
+	const uint32_t offset = READ_LE_UINT32(_res->_map + room * 6);
+	const uint8_t *p = _res->_map + offset;
+	_mapPalSlot1 = *p++;
+	_mapPalSlot2 = *p++;
+	_mapPalSlot3 = *p++;
+	_mapPalSlot4 = *p++;
+	static const int kPlaneSize = 256 * 224 / 4;
+	for (int i = 0; i < 4; ++i) {
+		const int plane_size = READ_LE_UINT16(p); p += 2;
+		pc98_unpack(_frontLayer + i * kPlaneSize, kPlaneSize, p, plane_size);
+		p += plane_size;
+	}
+	for (int i = 0; i < 256 * 224; ++i) {
+		_frontLayer[i] &= ~0x40;
+	}
+	memcpy(_backLayer, _frontLayer, _layerSize);
+	DOS_setLevelPalettes();
 }
 
 void Video::AMIGA_decodeLev(int level, int room) {
@@ -724,7 +755,7 @@ void Video::AMIGA_decodeLev(int level, int room) {
 	memset(_frontLayer, 0, _layerSize);
 	if (tmp[1] != 0) {
 		assert(_res->_sgd);
-		decodeSgd(_frontLayer, tmp + offset10, _res->_sgd, _res->isAmiga());
+		decodeSgd(_frontLayer, tmp + offset10, _res->_sgd, _res->isAmiga(), level, room);
 		offset10 = 0;
 	}
 	decodeLevHelper(_frontLayer, tmp, offset10, offset12, buf, tmp[1] != 0, _res->isDOS());
@@ -735,7 +766,7 @@ void Video::AMIGA_decodeLev(int level, int room) {
 	_mapPalSlot3 = READ_BE_UINT16(tmp + 6);
 	_mapPalSlot4 = READ_BE_UINT16(tmp + 8);
 	if (_res->isDOS()) {
-		PC_setLevelPalettes();
+		DOS_setLevelPalettes();
 		if (level == 0) { // tiles with color slot 0x9
 			setPaletteSlotBE(0x9, _mapPalSlot1);
 		}
@@ -878,9 +909,9 @@ void Video::drawSpriteSub6(const uint8_t *src, uint8_t *dst, int pitch, int h, i
 	}
 }
 
-void Video::PC_drawChar(uint8_t c, int16_t y, int16_t x, bool forceDefaultFont) {
-	debug(DBG_VIDEO, "Video::PC_drawChar(0x%X, %d, %d)", c, y, x);
-	const uint8_t *fnt = (_res->_lang == LANG_JP && !forceDefaultFont) ? _font8Jp : _res->_fnt;
+void Video::DOS_drawChar(uint8_t c, int16_t y, int16_t x, bool forceDefaultFont) {
+	debug(DBG_VIDEO, "Video::DOS_drawChar(0x%X, %d, %d)", c, y, x);
+	const uint8_t *fnt = ((_res->_lang == LANG_JP && !forceDefaultFont) || _res->isPC98()) ? _font8Jp : _res->_fnt;
 	y *= CHAR_W;
 	x *= CHAR_H;
 	const uint8_t *src = fnt + (c - 32) * 32;
@@ -930,7 +961,7 @@ void Video::AMIGA_drawStringChar(uint8_t *dst, int pitch, int x, int y, const ui
 	}
 }
 
-void Video::PC_drawStringChar(uint8_t *dst, int pitch, int x, int y, const uint8_t *src, uint8_t color, uint8_t chr) {
+void Video::DOS_drawStringChar(uint8_t *dst, int pitch, int x, int y, const uint8_t *src, uint8_t color, uint8_t chr) {
 	dst += y * pitch + x;
 	assert(chr >= 32);
 	src += (chr - 32) * 8 * 4;
@@ -972,7 +1003,7 @@ void Video::MAC_drawStringChar(uint8_t *dst, int pitch, int x, int y, const uint
 
 const char *Video::drawString(const char *str, int16_t x, int16_t y, uint8_t col) {
 	debug(DBG_VIDEO, "Video::drawString('%s', %d, %d, 0x%X)", str, x, y, col);
-	const uint8_t *fnt = (_res->_lang == LANG_JP) ? _font8Jp : _res->_fnt;
+	const uint8_t *fnt = (_res->_lang == LANG_JP || _res->isPC98()) ? _font8Jp : _res->_fnt;
 	int len = 0;
 	while (1) {
 		const uint8_t c = *str++;
@@ -987,7 +1018,7 @@ const char *Video::drawString(const char *str, int16_t x, int16_t y, uint8_t col
 }
 
 void Video::drawStringLen(const char *str, int len, int x, int y, uint8_t color) {
-	const uint8_t *fnt = (_res->_lang == LANG_JP) ? _font8Jp : _res->_fnt;
+	const uint8_t *fnt = (_res->_lang == LANG_JP || _res->isPC98()) ? _font8Jp : _res->_fnt;
 	for (int i = 0; i < len; ++i) {
 		(this->*_drawChar)(_frontLayer, _w, x + i * CHAR_W, y, fnt, color, str[i]);
 	}
@@ -1064,9 +1095,9 @@ void Video::fillRect(int x, int y, int w, int h, uint8_t color) {
 
 static void fixOffsetDecodeBuffer(DecodeBuffer *buf, const uint8_t *dataPtr) {
         if (buf->xflip) {
-                buf->x += (int16_t)READ_BE_UINT16(dataPtr + 4) - READ_BE_UINT16(dataPtr) - 1;
+		buf->x += (int16_t)READ_BE_UINT16(dataPtr + 4) - READ_BE_UINT16(dataPtr) - 1;
         } else {
-                buf->x -= (int16_t)READ_BE_UINT16(dataPtr + 4);
+		buf->x -= (int16_t)READ_BE_UINT16(dataPtr + 4);
         }
         buf->y -= (int16_t)READ_BE_UINT16(dataPtr + 6);
 }

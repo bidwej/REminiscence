@@ -15,7 +15,9 @@ Mixer::Mixer(FileSystem *fs, SystemStub *stub)
 }
 
 void Mixer::init() {
-	memset(_channels, 0, sizeof(_channels));
+	for (int i = 0; i < NUM_CHANNELS; ++i) {
+		_channels[i].active = false;
+	}
 	_premixHook = 0;
 	_stub->startAudio(Mixer::mixCallback, this);
 }
@@ -42,6 +44,7 @@ void Mixer::play(const uint8_t *data, uint32_t len, uint16_t freq, uint8_t volum
 		if (cur->active) {
 			if (cur->chunk.data == data) {
 				cur->chunkPos = 0;
+				cur->volume = volume;
 				return;
 			}
 		} else {
@@ -87,29 +90,23 @@ static bool isMusicSfx(int num) {
 	return (num >= 68 && num <= 75);
 }
 
-void Mixer::playMusic(int num) {
-	debug(DBG_SND, "Mixer::playMusic(%d)", num);
-	if (num > MUSIC_TRACK && num != _musicTrack) {
-		if (_ogg.playTrack(num - MUSIC_TRACK)) {
-			_backgroundMusicType = _musicType = MT_OGG;
-			_musicTrack = num;
-			return;
-		}
-		if (_cpc.playTrack(num - MUSIC_TRACK)) {
-			_backgroundMusicType = _musicType = MT_CPC;
-			_musicTrack = num;
-			return;
-		}
-	}
+void Mixer::playMusic(int num, int tempo) {
+	debug(DBG_SND, "Mixer::playMusic(%d, %d)", num, tempo);
+	int trackNum = -1;
 	if (num == 1) { // menu screen
-		if (_cpc.playTrack(2)) {
-			_backgroundMusicType = _musicType = MT_CPC;
-			_musicTrack = 2;
+		trackNum = 2;
+	} else if (num > MUSIC_TRACK) {
+		trackNum = num - MUSIC_TRACK;
+	}
+	if (trackNum != -1 && trackNum != _musicTrack) {
+		if (_ogg.playTrack(trackNum)) {
+			_backgroundMusicType = _musicType = MT_OGG;
+			_musicTrack = trackNum;
 			return;
 		}
-		if (_ogg.playTrack(2)) {
-			_backgroundMusicType = _musicType = MT_OGG;
-			_musicTrack = 2;
+		if (_cpc.playTrack(trackNum)) {
+			_backgroundMusicType = _musicType = MT_CPC;
+			_musicTrack = trackNum;
 			return;
 		}
 	}
@@ -122,9 +119,10 @@ void Mixer::playMusic(int num) {
 			_musicType = MT_SFX;
 		}
 	} else { // cutscene
-		_mod.play(num);
+		_mod.play(num, tempo);
 		if (_mod._playing) {
 			_musicType = MT_MOD;
+			return;
 		}
 	}
 }
@@ -148,7 +146,7 @@ void Mixer::stopMusic() {
 		break;
 	}
 	_musicType = MT_NONE;
-	if (_musicTrack != -1) {
+	if (_musicTrack > 2) { // do not resume menu music
 		switch (_backgroundMusicType) {
 		case MT_OGG:
 			_ogg.resumeTrack();
@@ -161,6 +159,8 @@ void Mixer::stopMusic() {
 		default:
 			break;
 		}
+	} else {
+		_musicTrack = -1;
 	}
 }
 
@@ -186,18 +186,20 @@ void Mixer::mix(int16_t *out, int len) {
 		MixerChannel *ch = &_channels[i];
 		if (ch->active) {
 			for (int pos = 0; pos < len; ++pos) {
-				if ((ch->chunkPos >> FRAC_BITS) >= (ch->chunk.len - 1)) {
+				const uint32_t cpos = ch->chunkPos >> FRAC_BITS;
+				if (cpos >= ch->chunk.len) {
 					ch->active = false;
 					break;
 				}
-				const int sample = ch->chunk.getPCM(ch->chunkPos >> FRAC_BITS) * ch->volume / Mixer::MAX_VOLUME;
-				out[pos] = ADDC_S16(out[pos], S8_to_S16(sample));
+				const int sample = S8_to_S16(ch->chunk.getPCM(cpos)) * ch->volume / Mixer::MAX_VOLUME;
+				out[2 * pos]     = ADDC_S16(out[2 * pos],     sample);
+				out[2 * pos + 1] = ADDC_S16(out[2 * pos + 1], sample);
 				ch->chunkPos += ch->chunkInc;
 			}
 		}
 	}
 	if (kUseNr) {
-		nr(out, len);
+		nr(out, len * 2); // stereo
 	}
 }
 

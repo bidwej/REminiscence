@@ -19,6 +19,12 @@ struct File;
 struct FileSystem;
 struct SystemStub;
 
+enum {
+	kCheatOneHitKill = 1 << 0,
+	kCheatNoHit = 1 << 1,
+	kCheatLifeCounter = 1 << 2
+};
+
 struct Game {
 	typedef int (Game::*pge_OpcodeProc)(ObjectOpcodeArgs *args);
 	typedef int (Game::*pge_ZOrderCallback)(LivePGE *, LivePGE *, uint8_t, uint8_t);
@@ -71,13 +77,13 @@ struct Game {
 	const char *_savePath;
 	File _rewindBuffer[kRewindSize];
 	int _rewindPtr, _rewindLen;
+	uint32_t _cheats;
 
 	const uint8_t *_stringsTable;
 	const char **_textsTable;
 	uint8_t _currentLevel;
 	uint8_t _skillLevel;
 	int _demoBin;
-	int _shownDemo;
 	uint32_t _score;
 	uint8_t _currentRoom;
 	uint8_t _currentIcon;
@@ -96,7 +102,6 @@ struct Game {
 	AnimBufferState _animBuffer3State[12];
 	AnimBuffers _animBuffers;
 	uint16_t _deathCutsceneCounter;
-	int _deathBackgroundMusicTrack;
 	bool _saveStateCompleted;
 	bool _endLoop;
 	uint32_t _frameTimestamp;
@@ -104,7 +109,7 @@ struct Game {
 	bool _autoSave;
 	uint32_t _saveTimestamp;
 
-	Game(SystemStub *, FileSystem *, FileSystem *, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave);
+	Game(SystemStub *, FileSystem *, FileSystem *, const char *savePath, int level, ResourceType ver, Language lang, WidescreenMode widescreenMode, bool autoSave, uint32_t cheats);
 
 	void run();
 	void displayTitleScreenAmiga();
@@ -147,9 +152,9 @@ struct Game {
 
 	// pieges
 	bool _pge_playAnimSound;
-	GroupPGE _pge_groups[256];
-	GroupPGE *_pge_groupsTable[256];
-	GroupPGE *_pge_nextFreeGroup;
+	MessagePGE _pge_messages[256];
+	MessagePGE *_pge_messagesTable[256]; // indexed by pge number
+	MessagePGE *_pge_nextFreeMessage;
 	LivePGE *_pge_liveTable2[256]; // active pieges list (index = pge number)
 	LivePGE *_pge_liveTable1[256]; // pieges list by room (index = room)
 	LivePGE _pgeLive[256];
@@ -157,17 +162,19 @@ struct Game {
 	bool _pge_currentPiegeFacingDir; // (false == left)
 	bool _pge_processOBJ;
 	uint8_t _pge_inpKeysMask;
-	uint16_t _pge_opTempVar1;
-	uint16_t _pge_opTempVar2;
+	uint16_t _pge_opGunVar;
 	uint16_t _pge_compareVar1;
 	uint16_t _pge_compareVar2;
+	uint8_t _pge_zoomPiegeNum;
+	uint8_t _pge_zoomCounter;
+	int _pge_zoomX, _pge_zoomY;
 
-	void pge_resetGroups();
-	void pge_removeFromGroup(uint8_t idx);
-	int pge_isInGroup(LivePGE *pge_dst, uint16_t group_id, uint16_t counter);
+	void pge_resetMessages();
+	void pge_clearMessages(uint8_t pge_index);
+	int pge_hasMessageData(LivePGE *pge, uint16_t msg_num, uint16_t counter) const;
 	void pge_loadForCurrentLevel(uint16_t idx);
 	void pge_process(LivePGE *pge);
-	void pge_setupNextAnimFrame(LivePGE *pge, GroupPGE *le);
+	void pge_setupNextAnimFrame(LivePGE *pge, MessagePGE *le);
 	void pge_playAnimSound(LivePGE *pge, uint16_t arg2);
 	void pge_setupAnim(LivePGE *pge);
 	int pge_execute(LivePGE *live_pge, InitPGE *init_pge, const Object *obj);
@@ -210,11 +217,11 @@ struct Game {
 	int pge_op_collides0o0u(ObjectOpcodeArgs *args);
 	int pge_op_collides2o2u(ObjectOpcodeArgs *args);
 	int pge_op_collides2u2o(ObjectOpcodeArgs *args);
-	int pge_op_isInGroup(ObjectOpcodeArgs *args);
-	int pge_op_updateGroup0(ObjectOpcodeArgs *args);
-	int pge_op_updateGroup1(ObjectOpcodeArgs *args);
-	int pge_op_updateGroup2(ObjectOpcodeArgs *args);
-	int pge_op_updateGroup3(ObjectOpcodeArgs *args);
+	int pge_hasPiegeSentMessage(ObjectOpcodeArgs *args);
+	int pge_op_sendMessageData0(ObjectOpcodeArgs *args);
+	int pge_op_sendMessageData1(ObjectOpcodeArgs *args);
+	int pge_op_sendMessageData2(ObjectOpcodeArgs *args);
+	int pge_op_sendMessageData3(ObjectOpcodeArgs *args);
 	int pge_op_isPiegeDead(ObjectOpcodeArgs *args);
 	int pge_op_collides1u2o(ObjectOpcodeArgs *args);
 	int pge_op_collides1u1o(ObjectOpcodeArgs *args);
@@ -232,10 +239,10 @@ struct Game {
 	int pge_op_isInpMod(ObjectOpcodeArgs *args);
 	int pge_op_setCollisionState1(ObjectOpcodeArgs *args);
 	int pge_op_setCollisionState0(ObjectOpcodeArgs *args);
-	int pge_op_isInGroup1(ObjectOpcodeArgs *args);
-	int pge_op_isInGroup2(ObjectOpcodeArgs *args);
-	int pge_op_isInGroup3(ObjectOpcodeArgs *args);
-	int pge_op_isInGroup4(ObjectOpcodeArgs *args);
+	int pge_hasMessageData0(ObjectOpcodeArgs *args);
+	int pge_hasMessageData1(ObjectOpcodeArgs *args);
+	int pge_hasMessageData2(ObjectOpcodeArgs *args);
+	int pge_hasMessageData3(ObjectOpcodeArgs *args);
 	int pge_o_unk0x3C(ObjectOpcodeArgs *args);
 	int pge_o_unk0x3D(ObjectOpcodeArgs *args);
 	int pge_op_setPiegeCounter(ObjectOpcodeArgs *args);
@@ -250,7 +257,7 @@ struct Game {
 	int pge_o_unk0x47(ObjectOpcodeArgs *args);
 	int pge_o_unk0x48(ObjectOpcodeArgs *args);
 	int pge_o_unk0x49(ObjectOpcodeArgs *args);
-	int pge_o_unk0x4A(ObjectOpcodeArgs *args);
+	int pge_op_killInventoryPiege(ObjectOpcodeArgs *args);
 	int pge_op_killPiege(ObjectOpcodeArgs *args);
 	int pge_op_isInCurrentRoom(ObjectOpcodeArgs *args);
 	int pge_op_isNotInCurrentRoom(ObjectOpcodeArgs *args);
@@ -266,7 +273,7 @@ struct Game {
 	int pge_op_setLifeCounter(ObjectOpcodeArgs *args);
 	int pge_op_decLifeCounter(ObjectOpcodeArgs *args);
 	int pge_op_playCutscene(ObjectOpcodeArgs *args);
-	int pge_op_isTempVar2Set(ObjectOpcodeArgs *args);
+	int pge_op_compareUnkVar(ObjectOpcodeArgs *args);
 	int pge_op_playDeathCutscene(ObjectOpcodeArgs *args);
 	int pge_o_unk0x5D(ObjectOpcodeArgs *args);
 	int pge_o_unk0x5E(ObjectOpcodeArgs *args);
@@ -282,7 +289,7 @@ struct Game {
 	int pge_op_setCollisionState2(ObjectOpcodeArgs *args);
 	int pge_op_saveState(ObjectOpcodeArgs *args);
 	int pge_o_unk0x6A(ObjectOpcodeArgs *args);
-	int pge_op_isInGroupSlice(ObjectOpcodeArgs *args);
+	int pge_isToggleable(ObjectOpcodeArgs *args);
 	int pge_o_unk0x6C(ObjectOpcodeArgs *args);
 	int pge_op_isCollidingObject(ObjectOpcodeArgs *args);
 	int pge_o_unk0x6E(ObjectOpcodeArgs *args);
@@ -312,16 +319,16 @@ struct Game {
 	int pge_o_unk0x86(ObjectOpcodeArgs *args);
 	int pge_op_playSoundGroup(ObjectOpcodeArgs *args);
 	int pge_op_adjustPos(ObjectOpcodeArgs *args);
-	int pge_op_setTempVar1(ObjectOpcodeArgs *args);
-	int pge_op_isTempVar1Set(ObjectOpcodeArgs *args);
+	int pge_op_setGunVar(ObjectOpcodeArgs *args);
+	int pge_op_compareGunVar(ObjectOpcodeArgs *args);
 	int pge_setCurrentInventoryObject(LivePGE *pge);
 	void pge_updateInventory(LivePGE *pge1, LivePGE *pge2);
 	void pge_reorderInventory(LivePGE *pge);
-	LivePGE *pge_getInventoryItemBefore(LivePGE *pge, LivePGE *last_pge);
+	LivePGE *pge_getPreviousInventoryItem(LivePGE *pge, LivePGE *last_pge);
 	void pge_addToInventory(LivePGE *pge1, LivePGE *pge2, LivePGE *pge3);
-	int pge_updateCollisionState(LivePGE *pge, int16_t pge_dy, uint8_t var8);
+	int pge_updateCollisionState(LivePGE *pge, int16_t pge_dy, uint8_t value);
 	int pge_ZOrder(LivePGE *pge, int16_t num, pge_ZOrderCallback compare, uint16_t unk);
-	void pge_updateGroup(uint8_t idx, uint8_t unk1, int16_t unk2);
+	void pge_sendMessage(uint8_t src_pge_index, uint8_t dst_pge_index, int16_t num);
 	void pge_removeFromInventory(LivePGE *pge1, LivePGE *pge2, LivePGE *pge3);
 	int pge_ZOrderByAnimY(LivePGE *pge1, LivePGE *pge2, uint8_t comp, uint8_t comp2);
 	int pge_ZOrderByAnimYIfType(LivePGE *pge1, LivePGE *pge2, uint8_t comp, uint8_t comp2);
@@ -333,6 +340,7 @@ struct Game {
 	int pge_ZOrderIfTypeAndSameDirection(LivePGE *pge1, LivePGE *pge2, uint8_t comp, uint8_t comp2);
 	int pge_ZOrderIfTypeAndDifferentDirection(LivePGE *pge1, LivePGE *pge2, uint8_t comp, uint8_t comp2);
 	int pge_ZOrderByNumber(LivePGE *pge1, LivePGE *pge2, uint8_t comp, uint8_t comp2);
+	void pge_updateZoom();
 
 
 	// collision
@@ -388,7 +396,7 @@ struct Game {
 	bool saveGameState(uint8_t slot);
 	bool loadGameState(uint8_t slot);
 	void saveState(File *f);
-	void loadState(File *f);
+	void loadState(File *f, int version);
 	void clearStateRewind();
 	bool saveStateRewind();
 	bool loadStateRewind();
