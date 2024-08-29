@@ -49,7 +49,6 @@ struct SfxPlayer {
 	static const uint8_t _musicData73[];
 	static const uint8_t _musicData74[];
 	static const uint8_t _musicData75[];
-	static const uint8_t _musicData76[];
 	static const uint8_t _musicDataSample1[];
 	static const uint8_t _musicDataSample2[]; // tick
 	static const uint8_t _musicDataSample3[]; // bell
