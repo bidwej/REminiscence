@@ -5,6 +5,7 @@
  */
 
 #include "game.h"
+#include "intern.h"
 #include "screenshot.h"
 #include "systemstub.h"
 
@@ -151,7 +152,7 @@ bool Game::handleProtectionScreenShape() {
 bool Game::handleProtectionScreenWords() {
 	bool valid = false;
 	static const int kWordsCount = 40;
-	if (0) {
+	if (1) {
 		for (int i = 0; i < kWordsCount * 18; i += 18) {
 			const uint8_t *data = _protectionWordData + i;
 			fprintf(stdout, "page %d column %d line %2d word %d : ", data[0], data[1], data[2], data[3]);
@@ -171,7 +172,7 @@ bool Game::handleProtectionScreenWords() {
 
 	memset(_vid._frontLayer, 0, _vid._layerSize);
 
-	static const char *kText[] = {
+	static const char *enText[] = {
 		"Enter the word found in the",
 		"following location in your",
 		"rulebook. (Do not count the",
@@ -180,6 +181,19 @@ bool Game::handleProtectionScreenWords() {
 		"and header).",
 		0
 	};
+
+	static const char *ruText[] = {
+		"",
+		"BBEdiTE ClOBO iz YKAzAHHOgO",
+		"MECTA B PYKOBOdCTBE",
+		"",
+		"HE ChiTAq zAgOlOBKOB",
+		"",
+		0
+	};
+
+	static const char **kText = _res._lang == LANG_RU ? ruText : enText;
+
 	for (int i = 0; kText[i]; ++i) {
 		_vid.drawString(kText[i], 24, 16 + i * Video::CHAR_H, 0xE5);
 	}

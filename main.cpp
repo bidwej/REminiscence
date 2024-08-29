@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
 		// data path as the only command line argument
 		struct stat st;
 		if (stat(argv[1], &st) == 0 && S_ISDIR(st.st_mode)) {
-			dataPath = strdup(argv[1]);
+			dataPath = tunePath = savePath = strdup(argv[1]);
 		}
 	}
 	while (1) {
