@@ -2,6 +2,12 @@
 
 ### REinforced:
 
+* release 0.5.3 `2024-08-30`
+	- fixed cutscene offsets with Macintosh data files
+	- fixed nearest and linear scalers
+	- XBR scaler moved to separate library 
+	- other little fixes and improvements
+
 * release 0.5.2 `2021-05-23`
 	- fixed credits scene
 	- fixed controllers and joysticks
