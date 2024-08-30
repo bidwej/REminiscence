@@ -672,7 +672,10 @@ void ModPlayer::play(int num, int tempo) {
 			char name[32];
 			snprintf(name, sizeof(name), "mod.flashback-%s", p ? p : _names[num * 2]);
 			if (!f.open(name, "rb", _fs)) {
-				return;
+				snprintf(name, sizeof(name), "%s.mod", p ? p : _names[num * 2]);
+				if (!f.open(name, "rb", _fs)) {
+					return;
+				}
 			}
 		}
 		_impl->init(_mix->getSampleRate());
