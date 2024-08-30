@@ -563,8 +563,13 @@ void SystemStub_SDL::updateScreen(int shakeOffset) {
 		SDL_Rect r;
 		r.y = shakeOffset * _scaleFactor;
 		SDL_RenderGetLogicalSize(_renderer, &r.w, &r.h);
-		r.x = (r.w - _texW) / 2;
-		r.w = _texW;
+		if (_scalerType == kScalerTypeLinear || _scalerType == kScalerTypePoint) {
+			r.x = (r.w - _texW * _scaleFactor) / 2;
+			r.w = _texW * _scaleFactor;
+		} else {
+			r.x = (r.w - _texW) / 2;
+			r.w = _texW;
+		}
 		SDL_RenderCopy(_renderer, _texture, &_texRect, &r);
 	} else {
 		if (_fadeOnUpdateScreen) {
