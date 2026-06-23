@@ -1815,8 +1815,10 @@ void Game::loadLevelData() {
 	for (uint16_t i = 0; i < _res._pgeNum; ++i) {
 		if (_res._pgeInit[i].skill <= _skillLevel) {
 			LivePGE *pge = &_pgeLive[i];
-			pge->next_PGE_in_room = _pge_liveTable1[pge->room_location];
-			_pge_liveTable1[pge->room_location] = pge;
+			if (pge->room_location < 0x40) {
+				pge->next_PGE_in_room = _pge_liveTable1[pge->room_location];
+				_pge_liveTable1[pge->room_location] = pge;
+			}
 		}
 	}
 	pge_resetMessages();
@@ -2319,8 +2321,10 @@ void Game::loadState(File *f, int version) {
 			if (pge->flags & 4) {
 				_pge_liveTable2[pge->index] = pge;
 			}
-			pge->next_PGE_in_room = _pge_liveTable1[pge->room_location];
-			_pge_liveTable1[pge->room_location] = pge;
+			if (pge->room_location < 0x40) {
+				pge->next_PGE_in_room = _pge_liveTable1[pge->room_location];
+				_pge_liveTable1[pge->room_location] = pge;
+			}
 		}
 	}
 	resetGameState();
