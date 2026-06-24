@@ -448,22 +448,23 @@ void Game::mainLoop() {
 		return;
 	}
 	if (_loadMap) {
-		if (_currentRoom == 0xFF || !hasLevelMap(_currentLevel, _pgeLive[0].room_location)) {
+		const uint8_t player_room = _pgeLive[0].room_location;
+		if (_currentRoom == 0xFF || !hasLevelMap(_currentLevel, player_room)) {
 			if (_demoBin != -1) {
 				// Demo playback may start in a room that has no visual map (e.g. DOS
 				// LEVEL3 room 39). Keep the simulation running so the player falls or
 				// wraps into a valid room instead of triggering an immediate death cutscene.
-				_currentRoom = _pgeLive[0].room_location;
+				_currentRoom = player_room;
 				_loadMap = false;
 			} else {
 				_cut._id = 6;
 				_deathCutsceneCounter = 1;
 			}
 		} else {
-			_currentRoom = _pgeLive[0].room_location;
+			_currentRoom = player_room;
 			loadLevelMap();
-			_loadMap = false;
 			_vid.fullRefresh();
+			_loadMap = false;
 		}
 	}
 	if (_res.isDOS() && (_stub->_pi.dbgMask & PlayerInput::DF_AUTOZOOM) != 0) {
@@ -1602,7 +1603,6 @@ void Game::loadLevelMap() {
 	debug(DBG_GAME, "Game::loadLevelMap() room=%d", _currentRoom);
 	if (_currentRoom != 0xFF && !hasLevelMap(_currentLevel, _currentRoom)) {
 		debug(DBG_GAME, "Game::loadLevelMap() skipped invalid room %d", _currentRoom);
-		_loadMap = false;
 		return;
 	}
 	bool widescreenUpdated = false;
