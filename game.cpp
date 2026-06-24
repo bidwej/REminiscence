@@ -1592,6 +1592,11 @@ static bool isMetro(int level, int room) {
 
 void Game::loadLevelMap() {
 	debug(DBG_GAME, "Game::loadLevelMap() room=%d", _currentRoom);
+	if (_currentRoom != 0xFF && !hasLevelMap(_currentLevel, _currentRoom)) {
+		debug(DBG_GAME, "Game::loadLevelMap() skipped invalid room %d", _currentRoom);
+		_loadMap = false;
+		return;
+	}
 	bool widescreenUpdated = false;
 	_currentIcon = 0xFF;
 	switch (_res._type) {
