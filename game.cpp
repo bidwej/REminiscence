@@ -449,8 +449,16 @@ void Game::mainLoop() {
 	}
 	if (_loadMap) {
 		if (_currentRoom == 0xFF || !hasLevelMap(_currentLevel, _pgeLive[0].room_location)) {
-			_cut._id = 6;
-			_deathCutsceneCounter = 1;
+			if (_demoBin != -1) {
+				// Demo playback may start in a room that has no visual map (e.g. DOS
+				// LEVEL3 room 39). Keep the simulation running so the player falls or
+				// wraps into a valid room instead of triggering an immediate death cutscene.
+				_currentRoom = _pgeLive[0].room_location;
+				_loadMap = false;
+			} else {
+				_cut._id = 6;
+				_deathCutsceneCounter = 1;
+			}
 		} else {
 			_currentRoom = _pgeLive[0].room_location;
 			loadLevelMap();
